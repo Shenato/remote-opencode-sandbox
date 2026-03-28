@@ -128,7 +128,7 @@ export function generateDockerfile(instance: ResolvedInstance): string {
 
   // ── Workspace and directory setup ─────────────────────────────────
   lines.push(`# Workspace — projects are mounted here`);
-  lines.push(`RUN mkdir -p /workspace && chown -R coder:coder /workspace`);
+  lines.push(`RUN mkdir -p /workspace`);
 
   // Pre-create node_modules dirs for each project that uses node
   for (const proj of instance.projects) {
@@ -136,6 +136,9 @@ export function generateDockerfile(instance: ResolvedInstance): string {
       `RUN mkdir -p ${proj.workspacePath}/node_modules`
     );
   }
+
+  // chown AFTER all dirs are created, so named volumes inherit coder ownership
+  lines.push(`RUN chown -R coder:coder /workspace`);
   lines.push(``);
 
   // Create directories for config/data mounts (so Docker doesn't create them as root)
@@ -143,7 +146,8 @@ export function generateDockerfile(instance: ResolvedInstance): string {
   lines.push(`RUN mkdir -p /home/coder/.config/opencode \\`);
   lines.push(`    && mkdir -p /home/coder/.local/share/opencode \\`);
   lines.push(`    && mkdir -p /home/coder/.remote-opencode \\`);
-  lines.push(`    && chown -R coder:coder /home/coder/.config /home/coder/.local /home/coder/.remote-opencode`);
+  lines.push(`    && mkdir -p /home/coder/.git-credentials \\`);
+  lines.push(`    && chown -R coder:coder /home/coder/.config /home/coder/.local /home/coder/.remote-opencode /home/coder/.git-credentials`);
   lines.push(``);
 
   // Copy opencode.docker.json into the image as fallback
@@ -163,10 +167,13 @@ export function generateDockerfile(instance: ResolvedInstance): string {
   lines.push(``);
 
   // ── Git config ──────────────────────────────────────────────────
+  // The credential.helper is set via includeIf in the mounted gitconfig.sandbox
+  // file, which routes PATs per-project based on working directory.
+  // gh CLI uses GH_TOKEN env var directly (set in .env via env_file).
   lines.push(`# Git defaults (safe, sensible)`);
   lines.push(`RUN git config --global push.default simple \\`);
   lines.push(`    && git config --global push.autoSetupRemote true \\`);
-  lines.push(`    && git config --global credential.helper '!gh auth git-credential'`);
+  lines.push(`    && git config --global include.path /home/coder/.git-credentials/gitconfig.sandbox`);
   lines.push(``);
 
   lines.push(`WORKDIR /workspace`);

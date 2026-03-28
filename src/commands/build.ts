@@ -13,6 +13,7 @@ import {
   generateCompose,
   generateEntrypoint,
   generateOpenCodeConfig,
+  generateGitCredentials,
 } from "../generators/index.ts";
 
 /**
@@ -75,21 +76,24 @@ export function buildInstance(instanceName: string): {
     secrets["GIT_COMMITTER_EMAIL"] = globalConfig.git.email;
   }
 
-  // Ensure default GH_TOKEN is in secrets if set globally
+  // GH_TOKEN in .env is used by gh CLI (which reads env vars directly).
+  // Git credential authentication is handled separately via per-project
+  // credential files (more secure, supports different PATs per project).
+  // The GH_TOKEN here is the "best available" PAT for gh CLI commands.
   if (globalConfig.defaultGithubPat && !secrets["GH_TOKEN"]) {
     secrets["GH_TOKEN"] = globalConfig.defaultGithubPat;
   }
-
-  // Check per-project PATs
   const projects = listProjectsInInstance(instanceName);
   for (const proj of projects) {
     if (proj.githubPat !== "default" && proj.githubPat) {
-      // Use project-specific PAT (last one wins if multiple projects have different PATs)
       secrets["GH_TOKEN"] = proj.githubPat;
     }
   }
 
   saveInstanceSecrets(instanceName, secrets);
+
+  // Generate per-project git credential files (PATs routed via includeIf)
+  generateGitCredentials(projects, globalConfig.defaultGithubPat, genDir);
 
   return { success: true, generatedDir: genDir };
 }

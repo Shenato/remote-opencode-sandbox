@@ -74,6 +74,11 @@ export function generateCompose(instance: ResolvedInstance): string {
   lines.push(`      - ./opencode.docker.json:/home/coder/.sandbox/opencode.docker.json:ro`);
   lines.push(``);
 
+  // Git credentials (per-project PATs via includeIf)
+  lines.push(`      # Git credentials (per-project PATs, read-only)`);
+  lines.push(`      - ./git-credentials:/home/coder/.git-credentials:ro`);
+  lines.push(``);
+
   // remote-opencode config (read-write)
   lines.push(`      # remote-opencode config + data (read-write)`);
   lines.push(`      - \${HOME}/.remote-opencode:/home/coder/.remote-opencode`);
