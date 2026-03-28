@@ -93,7 +93,7 @@ export function buildInstance(instanceName: string): {
   saveInstanceSecrets(instanceName, secrets);
 
   // Generate per-project git credential files (PATs routed via includeIf)
-  generateGitCredentials(projects, globalConfig.defaultGithubPat, genDir);
+  generateGitCredentials(projects, globalConfig.defaultGithubPat, genDir, resolved.ssh);
 
   return { success: true, generatedDir: genDir };
 }

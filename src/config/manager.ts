@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type {
   GlobalConfig,
@@ -12,6 +13,7 @@ import type {
   McpServer,
   ContainerService,
   HostService,
+  SshConfig,
 } from "../types.ts";
 import {
   CONFIG_DIR,
@@ -431,6 +433,21 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     }
   }
 
+  // Resolve SSH config (expand ~ to home dir, validate key exists)
+  let ssh: SshConfig | undefined;
+  if (globalConfig.ssh?.keyPath) {
+    const expandedPath = globalConfig.ssh.keyPath.replace(
+      /^~/,
+      os.homedir()
+    );
+    if (fs.existsSync(expandedPath)) {
+      ssh = {
+        keyPath: expandedPath,
+        githubUsername: globalConfig.ssh.githubUsername,
+      };
+    }
+  }
+
   return {
     name: instanceName,
     projects: resolvedProjects,
@@ -442,5 +459,6 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     envSecrets,
     ports: Array.from(ports),
     permission,
+    ssh,
   };
 }

@@ -49,6 +49,7 @@ export function generateDockerfile(instance: ResolvedInstance): string {
     "jq",
     "ca-certificates",
     "gnupg",
+    "openssh-client",
     // Chrome dependency libraries (explicit for reliability)
     ...(docker.installChrome ? CHROME_DEPS : []),
     ...docker.extraPackages,
@@ -147,7 +148,9 @@ export function generateDockerfile(instance: ResolvedInstance): string {
   lines.push(`    && mkdir -p /home/coder/.local/share/opencode \\`);
   lines.push(`    && mkdir -p /home/coder/.remote-opencode \\`);
   lines.push(`    && mkdir -p /home/coder/.git-credentials \\`);
-  lines.push(`    && chown -R coder:coder /home/coder/.config /home/coder/.local /home/coder/.remote-opencode /home/coder/.git-credentials`);
+  lines.push(`    && mkdir -p /home/coder/.ssh \\`);
+  lines.push(`    && chmod 700 /home/coder/.ssh \\`);
+  lines.push(`    && chown -R coder:coder /home/coder/.config /home/coder/.local /home/coder/.remote-opencode /home/coder/.git-credentials /home/coder/.ssh`);
   lines.push(``);
 
   // Copy opencode.docker.json into the image as fallback

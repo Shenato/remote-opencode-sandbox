@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ProjectConfig } from "../types.ts";
+import type { ProjectConfig, SshConfig } from "../types.ts";
 import { CONTAINER_WORKSPACE } from "../constants.ts";
 
 /**
@@ -11,14 +11,17 @@ function containerCredPath(projectName: string): string {
 }
 
 /**
- * Generate git credential files and gitconfig for per-project PAT support.
+ * Generate git credential files and gitconfig for per-project auth support.
  *
  * Architecture:
  *   - Each project with a PAT gets a git-credential-store file
  *     (format: https://<PAT>@github.com)
+ *   - Projects without a PAT but with SSH configured get URL rewriting
+ *     (git@github.com: insteadOf https://github.com/) scoped to their dir
  *   - A sandbox gitconfig uses [includeIf "gitdir:..."] to route
- *     credential lookups to the right file based on working directory
- *   - A default credential file is used as fallback for repos not
+ *     auth to the right method based on working directory
+ *   - PATs always take precedence over SSH for a given project
+ *   - A default credential/SSH fallback is used for repos not
  *     matching any project path
  *
  * Security:
@@ -30,6 +33,7 @@ export function generateGitCredentials(
   projects: ProjectConfig[],
   defaultPat: string | undefined,
   outputDir: string,
+  ssh?: SshConfig,
 ): void {
   const credDir = path.join(outputDir, "git-credentials");
   fs.mkdirSync(credDir, { recursive: true });
@@ -53,39 +57,65 @@ export function generateGitCredentials(
     gitconfigLines.push("[credential]");
     gitconfigLines.push(`\thelper = store --file=${containerCredPath("default")}`);
     gitconfigLines.push("");
+  } else if (ssh) {
+    // No default PAT — use SSH as the fallback for repos outside project dirs
+    gitconfigLines.push("# Fallback: use SSH for repos not matching any project path");
+    gitconfigLines.push('[url "git@github.com:"]');
+    gitconfigLines.push('\tinsteadOf = https://github.com/');
+    gitconfigLines.push("");
   }
 
   // ── Per-project credentials ────────────────────────────────────
   for (const proj of projects) {
     const pat = proj.githubPat === "default" ? defaultPat : proj.githubPat;
-    if (!pat) continue;
-
-    // Write credential file
-    const credFile = path.join(credDir, proj.name);
-    fs.writeFileSync(credFile, `https://${pat}@github.com\n`, {
-      encoding: "utf-8",
-      mode: 0o600,
-    });
-
-    // Write per-project gitconfig fragment
-    const projGitconfig = path.join(credDir, `${proj.name}.gitconfig`);
-    const projGitconfigContent = [
-      `# Credentials for project: ${proj.name}`,
-      "[credential]",
-      `\thelper = store --file=${containerCredPath(proj.name)}`,
-      "",
-    ].join("\n");
-    fs.writeFileSync(projGitconfig, projGitconfigContent, {
-      encoding: "utf-8",
-      mode: 0o600,
-    });
-
-    // Add includeIf directive to main gitconfig
     const workspacePath = `${CONTAINER_WORKSPACE}/${proj.name}/`;
-    gitconfigLines.push(`# Project: ${proj.name}`);
-    gitconfigLines.push(`[includeIf "gitdir:${workspacePath}"]`);
-    gitconfigLines.push(`\tpath = ${containerCredPath(proj.name)}.gitconfig`);
-    gitconfigLines.push("");
+
+    if (pat) {
+      // Project has a PAT — use HTTPS credential store
+      // Write credential file
+      const credFile = path.join(credDir, proj.name);
+      fs.writeFileSync(credFile, `https://${pat}@github.com\n`, {
+        encoding: "utf-8",
+        mode: 0o600,
+      });
+
+      // Write per-project gitconfig fragment
+      const projGitconfig = path.join(credDir, `${proj.name}.gitconfig`);
+      const projGitconfigContent = [
+        `# Credentials for project: ${proj.name}`,
+        "[credential]",
+        `\thelper = store --file=${containerCredPath(proj.name)}`,
+        "",
+      ].join("\n");
+      fs.writeFileSync(projGitconfig, projGitconfigContent, {
+        encoding: "utf-8",
+        mode: 0o600,
+      });
+
+      // Add includeIf directive to main gitconfig
+      gitconfigLines.push(`# Project: ${proj.name} (PAT)`);
+      gitconfigLines.push(`[includeIf "gitdir:${workspacePath}"]`);
+      gitconfigLines.push(`\tpath = ${containerCredPath(proj.name)}.gitconfig`);
+      gitconfigLines.push("");
+    } else if (ssh) {
+      // No PAT for this project — use SSH URL rewriting
+      const projGitconfig = path.join(credDir, `${proj.name}.gitconfig`);
+      const projGitconfigContent = [
+        `# SSH auth for project: ${proj.name} (no PAT configured)`,
+        '[url "git@github.com:"]',
+        '\tinsteadOf = https://github.com/',
+        "",
+      ].join("\n");
+      fs.writeFileSync(projGitconfig, projGitconfigContent, {
+        encoding: "utf-8",
+        mode: 0o600,
+      });
+
+      gitconfigLines.push(`# Project: ${proj.name} (SSH)`);
+      gitconfigLines.push(`[includeIf "gitdir:${workspacePath}"]`);
+      gitconfigLines.push(`\tpath = ${containerCredPath(proj.name)}.gitconfig`);
+      gitconfigLines.push("");
+    }
   }
 
   // Write the main gitconfig fragment

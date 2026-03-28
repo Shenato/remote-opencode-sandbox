@@ -89,6 +89,16 @@ export function generateCompose(instance: ResolvedInstance): string {
   lines.push(`      - \${HOME}/.local/share/opencode:/home/coder/.local/share/opencode`);
   lines.push(``);
 
+  // SSH keys (read-only, if configured)
+  if (instance.ssh?.keyPath) {
+    const keyPath = instance.ssh.keyPath;
+    lines.push(`      # SSH key for git authentication (read-only)`);
+    lines.push(`      - ${keyPath}:/home/coder/.ssh/id_key:ro`);
+    // Also mount the public key if it exists (some git hosts need it)
+    lines.push(`      - ${keyPath}.pub:/home/coder/.ssh/id_key.pub:ro`);
+    lines.push(``);
+  }
+
   // ── Environment overrides ────────────────────────────────────────
   lines.push(`    environment:`);
 

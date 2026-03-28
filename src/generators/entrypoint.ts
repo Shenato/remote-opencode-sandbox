@@ -95,6 +95,34 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   }
   lines.push(``);
 
+  // ── SSH key setup (if configured) ────────────────────────────────
+  if (instance.ssh) {
+    lines.push(`# ── SSH key setup ──`);
+    lines.push(`if [ -f /home/coder/.ssh/id_key ]; then`);
+    lines.push(`  log "preflight" "Setting up SSH key for git authentication"`);
+    lines.push(``);
+    lines.push(`  # Generate known_hosts for GitHub (and other common hosts)`);
+    lines.push(`  ssh-keyscan -t ed25519,rsa github.com >> /home/coder/.ssh/known_hosts 2>/dev/null || true`);
+    lines.push(`  chmod 644 /home/coder/.ssh/known_hosts`);
+    lines.push(``);
+    lines.push(`  # Create SSH config pointing to the mounted key`);
+    lines.push(`  cat > /home/coder/.ssh/config << 'SSHEOF'`);
+    lines.push(`Host github.com`);
+    lines.push(`  HostName github.com`);
+    lines.push(`  User git`);
+    lines.push(`  IdentityFile /home/coder/.ssh/id_key`);
+    lines.push(`  IdentitiesOnly yes`);
+    lines.push(`  StrictHostKeyChecking accept-new`);
+    lines.push(`SSHEOF`);
+    lines.push(`  chmod 600 /home/coder/.ssh/config`);
+    lines.push(``);
+    lines.push(`  log "preflight" "SSH key configured successfully"`);
+    lines.push(`else`);
+    lines.push(`  log "preflight" "WARNING: SSH key mount expected but /home/coder/.ssh/id_key not found"`);
+    lines.push(`fi`);
+    lines.push(``);
+  }
+
   // ── Run a oneshot service ────────────────────────────────────────
   lines.push(`# ── Run oneshot service ──`);
   lines.push(`run_oneshot() {`);

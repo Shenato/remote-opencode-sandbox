@@ -70,7 +70,7 @@ After linking, the `sandbox` command is available globally.
 ## Quick start
 
 ```bash
-# 1. First-time setup — sets your git identity and GitHub PAT
+# 1. First-time setup — sets your git identity, GitHub PAT, and optional SSH key
 sandbox init
 
 # 2. Add a project — picks a template, scans .env files, configures services
@@ -86,7 +86,7 @@ That's it. OpenCode is now running inside Docker and reachable via Discord.
 
 | Command | Description |
 |---------|-------------|
-| `sandbox init` | First-time setup: git identity, GitHub PAT |
+| `sandbox init` | First-time setup: git identity, GitHub PAT, SSH key |
 | `sandbox add <path>` | Add a project (interactive: template, env scanning, services) |
 | `sandbox remove <project>` | Remove a project from an instance |
 | `sandbox build` | Generate Docker files from config |
@@ -178,7 +178,7 @@ Configuration is merged in layers, with later layers overriding earlier ones:
 
 ### Global config (`config.json`)
 
-Created by `sandbox init`. Contains your git identity and default GitHub PAT.
+Created by `sandbox init`. Contains your git identity, default GitHub PAT, and optional SSH key configuration.
 
 ```json
 {
@@ -187,6 +187,10 @@ Created by `sandbox init`. Contains your git identity and default GitHub PAT.
     "email": "you@example.com"
   },
   "defaultGithubPat": "ghp_...",
+  "ssh": {
+    "keyPath": "~/.ssh/id_ed25519",
+    "githubUsername": "your-github-username"
+  },
   "defaultInstance": "default"
 }
 ```
@@ -556,6 +560,50 @@ The overrides are injected via Docker Compose's `environment:` block, which take
 
 Secrets (GitHub PAT, API keys) are stored in `~/.config/remote-opencode-sandbox/instances/<name>/generated/.env` and loaded via `env_file:` in the compose config. This file is never committed (it's in your home directory, not in the project).
 
+## SSH key authentication
+
+Instead of (or in addition to) PAT-based HTTPS authentication, you can mount an SSH private key into the container for git operations. This is useful when your GitHub account uses SSH keys for authentication.
+
+### Setup
+
+During `sandbox init`, the CLI auto-detects SSH private keys in `~/.ssh/` and lets you select one. You can also configure it manually in `~/.config/remote-opencode-sandbox/config.json`:
+
+```json
+{
+  "ssh": {
+    "keyPath": "~/.ssh/id_ed25519",
+    "githubUsername": "your-github-username"
+  }
+}
+```
+
+### How it works
+
+When SSH is configured, `sandbox build` generates the following:
+
+1. **Volume mounts** — Your SSH private key (and public key) are mounted read-only into the container at `/home/coder/.ssh/id_key`
+2. **SSH config** — The entrypoint creates `/home/coder/.ssh/config` pointing to the mounted key with `IdentitiesOnly yes`
+3. **known_hosts** — GitHub's host keys are fetched via `ssh-keyscan` at container startup
+4. **Git URL rewriting** — All `https://github.com/` URLs are rewritten to `git@github.com:` via `git config url."git@github.com:".insteadOf`, so git automatically uses SSH for all GitHub operations
+
+### Security notes
+
+- The SSH private key is mounted **read-only** — the container cannot modify it
+- The key file is only accessible to the `coder` user (UID 1000)
+- `StrictHostKeyChecking` is set to `accept-new` — new host keys are accepted but changed keys are rejected
+- The `.ssh` directory is created with `700` permissions in the Dockerfile
+
+### Using SSH alongside PATs
+
+SSH and PATs coexist cleanly with per-project scoping:
+
+- **Projects with a PAT** — Use HTTPS authentication via `git-credential-store`. The PAT always takes precedence.
+- **Projects without a PAT** — If SSH is configured, git URLs are rewritten from `https://github.com/` to `git@github.com:` for that project directory only.
+- **Fallback** — For repos outside any project directory: uses the default PAT if set, otherwise SSH.
+- **gh CLI** — Always uses the PAT via `GH_TOKEN` env var (SSH doesn't affect the GitHub CLI).
+
+This means you can mix authentication methods: some projects use PATs (with fine-grained scoping), others use your SSH key.
+
 ## Service model
 
 Services are defined per-project and orchestrated by a bash process supervisor inside the container.
@@ -623,7 +671,7 @@ The container is hardened with several layers:
 - **`no-new-privileges`** — Prevents privilege escalation
 - **Dropped capabilities** — All capabilities dropped, only `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID` (and `SYS_ADMIN` for Chrome) are added back
 - **tmpfs mounts** — `/tmp` (512MB) and `/run` (64MB) are tmpfs
-- **Read-only credentials** — Git credentials and OpenCode config are mounted read-only
+- **Read-only credentials** — Git credentials, SSH keys, and OpenCode config are mounted read-only
 - **No host network** — Container uses `host.docker.internal` to reach host services, not `--network host`
 - **Per-project PATs** — Git credentials are routed via `includeIf` directives, so each project can use a different GitHub PAT with minimal scope
 

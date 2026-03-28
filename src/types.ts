@@ -1,5 +1,13 @@
 // ─── Core Types for remote-opencode-sandbox ───────────────────────────────
 
+/** SSH key configuration for git authentication */
+export interface SshConfig {
+  /** Path to the private key on the host (e.g., "~/.ssh/id_ed25519") */
+  keyPath: string;
+  /** Associated GitHub username (for git URL rewriting) */
+  githubUsername?: string;
+}
+
 /** Global configuration stored at ~/.config/remote-opencode-sandbox/config.json */
 export interface GlobalConfig {
   /** Discord bot token for remote-opencode */
@@ -11,6 +19,8 @@ export interface GlobalConfig {
     name: string;
     email: string;
   };
+  /** SSH key configuration for git operations */
+  ssh?: SshConfig;
   /** Default instance name */
   defaultInstance: string;
 }
@@ -183,6 +193,8 @@ export interface ResolvedInstance {
   ports: string[];
   /** Permission level (most permissive wins) */
   permission: "allow" | "ask";
+  /** SSH key configuration (resolved from global config) */
+  ssh?: SshConfig;
 }
 
 export interface ResolvedProject {
