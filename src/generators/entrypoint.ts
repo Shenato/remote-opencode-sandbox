@@ -133,7 +133,7 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
       lines.push(`if [ -d "${targetDir}/.git" ]; then`);
       lines.push(`  log "repos" "Pulling ${repoName}..."`);
       lines.push(`  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[repos:${repoName}] /") || log "repos" "Pull failed for ${repoName} (continuing)"`);
-      lines.push(`elif [ ! -d "${targetDir}" ]; then`);
+      lines.push(`elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`);
       lines.push(`  log "repos" "Cloning ${repoName}..."`);
       lines.push(`  (GIT_TERMINAL_PROMPT=0 git clone "${repoUrl}" "${targetDir}" 2>&1 | sed "s/^/[repos:${repoName}] /") || log "repos" "Clone failed for ${repoName} (continuing)"`);
       lines.push(`else`);
