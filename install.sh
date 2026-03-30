@@ -117,7 +117,7 @@ if [ -d "$INSTALL_DIR" ]; then
   git pull --ff-only 2>/dev/null || true
 else
   info "Cloning repository..."
-  git clone https://github.com/underdune/remote-opencode-sandbox.git "$INSTALL_DIR" 2>/dev/null || {
+  git clone https://github.com/Shenato/remote-opencode-sandbox.git "$INSTALL_DIR" 2>/dev/null || {
     # If repo doesn't exist yet, just mkdir and we'll handle it
     err "Repository not available yet. Please install manually:"
     echo -e "  ${CYAN}cd ~/repos/remote-opencode-sandbox && bun install && bun link${NC}"

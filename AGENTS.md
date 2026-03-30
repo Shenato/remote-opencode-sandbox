@@ -168,8 +168,8 @@ npx tsx test/test-godot-template.ts
     └── default/
         ├── instance.json                # Instance: env, packages, MCP, services, extraRepos
         ├── projects/
-        │   ├── lovable-orphan.json      # Project config
-        │   └── resume-builder.json      # Project config
+        │   ├── my-webapp.json            # Project config
+        │   └── my-api.json              # Project config
         └── generated/                   # Output from `sandbox build`
             ├── Dockerfile
             ├── docker-compose.yml

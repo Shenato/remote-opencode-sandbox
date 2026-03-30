@@ -2,7 +2,7 @@
 
 Your own self-hosted AI coding agent — like [GitHub Copilot coding agent](https://github.com/features/copilot), [Claude Code](https://claude.ai), or [Devin](https://devin.ai), but running on your own machine, fully under your control.
 
-This tool sets up a secure Docker sandbox for [OpenCode](https://opencode.ai) (an open-source AI coding agent) and connects it to Discord via [remote-opencode](https://github.com/underdune/remote-opencode), so you can manage your coding sessions from anywhere — your phone, another computer, or any device with Discord.
+This tool sets up a secure Docker sandbox for [OpenCode](https://opencode.ai) (an open-source AI coding agent) and connects it to Discord via [remote-opencode](https://github.com/Shenato/remote-opencode), so you can manage your coding sessions from anywhere — your phone, another computer, or any device with Discord.
 
 ## What problem does this solve?
 
@@ -51,7 +51,7 @@ Projects are bind-mounted, so edits on the host (or by OpenCode inside the conta
 ### Quick install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/underdune/remote-opencode-sandbox/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Shenato/remote-opencode-sandbox/main/install.sh | bash
 ```
 
 This installs Bun, OpenCode, remote-opencode, and the sandbox CLI automatically. Docker must be installed separately.
@@ -59,7 +59,7 @@ This installs Bun, OpenCode, remote-opencode, and the sandbox CLI automatically.
 ### Manual install
 
 ```bash
-git clone https://github.com/underdune/remote-opencode-sandbox.git
+git clone https://github.com/Shenato/remote-opencode-sandbox.git
 cd remote-opencode-sandbox
 bun install
 bun link
@@ -859,7 +859,7 @@ const builtinTemplates: Record<string, Template> = {
 ### Development
 
 ```bash
-git clone https://github.com/underdune/remote-opencode-sandbox.git
+git clone https://github.com/Shenato/remote-opencode-sandbox.git
 cd remote-opencode-sandbox
 bun install
 
