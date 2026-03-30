@@ -38,6 +38,20 @@ export interface InstanceConfig {
   mcp?: Record<string, McpServer>;
   /** Docker image settings */
   docker?: DockerConfig;
+  /** Instance-level container services (not tied to any project) */
+  services?: ContainerService[];
+  /**
+   * Extra repositories to clone into /workspace/ at container startup.
+   *
+   * These are repos created by the bot or added by the user that aren't
+   * full "projects" (no template, no host bind mount). They live entirely
+   * inside the container, persisted via named Docker volumes.
+   *
+   * Format: HTTPS GitHub URLs, e.g. "https://github.com/org/repo.git"
+   * The repo is cloned into /workspace/<repo-name>/.
+   * On subsequent starts, existing repos are pulled instead of cloned.
+   */
+  extraRepos?: string[];
 }
 
 /** Docker image configuration */
@@ -47,6 +61,34 @@ export interface DockerConfig {
   installBun: boolean;
   installSupabaseCli: boolean;
   extraPackages: string[];
+  /** Custom install steps for arbitrary software (escape hatch for templates) */
+  installSteps?: DockerInstallStep[];
+}
+
+/**
+ * A custom Dockerfile install step.
+ *
+ * Templates use this to install arbitrary software without needing
+ * changes to the core Dockerfile generator. Each step produces a
+ * labelled block in the generated Dockerfile.
+ */
+export interface DockerInstallStep {
+  /** Unique name for this step (used for merging across config layers) */
+  name: string;
+  /** Comment emitted above the block in the Dockerfile */
+  comment?: string;
+  /** Extra apt packages required by this step (merged into the main apt-get install) */
+  aptPackages?: string[];
+  /** Raw Dockerfile lines (RUN, ENV, COPY, etc.) emitted verbatim */
+  instructions: string[];
+  /** Which USER context to emit these instructions under (default: root) */
+  user?: "root" | "coder";
+  /**
+   * Human-readable description of what this software does and how the bot
+   * should use it. Included in the generated AGENTS.md so the AI agent
+   * knows about installed tools. If omitted, the `comment` field is used.
+   */
+  description?: string;
 }
 
 /** A project registered in the sandbox */
@@ -141,6 +183,8 @@ export interface McpServer {
   command?: string[];
   url?: string;
   enabled?: boolean;
+  /** Environment variables passed to this MCP server process */
+  environment?: Record<string, string>;
 }
 
 /** Template definition */
@@ -195,6 +239,8 @@ export interface ResolvedInstance {
   permission: "allow" | "ask";
   /** SSH key configuration (resolved from global config) */
   ssh?: SshConfig;
+  /** Extra repos to clone/pull at container startup */
+  extraRepos: string[];
 }
 
 export interface ResolvedProject {

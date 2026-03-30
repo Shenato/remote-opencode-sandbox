@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Run OpenCode in a secure Docker sandbox, accessible via Discord. Multi-project, templated, auto-configured.",
   "type": "module",
+  "author": "Omar ElGaml",
   "bin": {
     "sandbox": "./bin/sandbox.ts"
   },

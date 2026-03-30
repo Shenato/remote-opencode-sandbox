@@ -9,6 +9,7 @@ import {
   upCommand,
   downCommand,
   restartCommand,
+  restartBotCommand,
   logsCommand,
   shellCommand,
   statusCommand,
@@ -129,6 +130,19 @@ export function runCli(): void {
     )
     .action(async (options) => {
       await restartCommand(options);
+    });
+
+  // ── restart-bot ────────────────────────────────────────────────
+  program
+    .command("restart-bot")
+    .description("Restart the Discord bot without restarting the container")
+    .option(
+      "-i, --instance <name>",
+      "Instance",
+      DEFAULT_INSTANCE
+    )
+    .action((options) => {
+      restartBotCommand(options);
     });
 
   // ── logs ────────────────────────────────────────────────────────

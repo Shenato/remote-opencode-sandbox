@@ -11,6 +11,9 @@ export function generateOpenCodeConfig(instance: ResolvedInstance): string {
     $schema: "https://opencode.ai/config.json",
     permission: instance.permission,
     mcp: instance.mcp,
+    // Point OpenCode to the workspace-level AGENTS.md so the bot
+    // always knows about its environment, installed tools, and MCPs
+    instructions: ["/workspace/AGENTS.md"],
   };
 
   return JSON.stringify(config, null, 2) + "\n";

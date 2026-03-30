@@ -123,6 +123,26 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
     lines.push(``);
   }
 
+  // ── Clone/pull extra repositories ─────────────────────────────────
+  if (instance.extraRepos.length > 0) {
+    lines.push(`# ── Extra repositories (clone if missing, pull if present) ──`);
+    for (const repoUrl of instance.extraRepos) {
+      // Extract repo name from URL: https://github.com/org/repo.git → repo
+      const repoName = repoUrl.replace(/\.git$/, "").split("/").pop() ?? "unknown";
+      const targetDir = `/workspace/${repoName}`;
+      lines.push(`if [ -d "${targetDir}/.git" ]; then`);
+      lines.push(`  log "repos" "Pulling ${repoName}..."`);
+      lines.push(`  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[repos:${repoName}] /") || log "repos" "Pull failed for ${repoName} (continuing)"`);
+      lines.push(`elif [ ! -d "${targetDir}" ]; then`);
+      lines.push(`  log "repos" "Cloning ${repoName}..."`);
+      lines.push(`  (GIT_TERMINAL_PROMPT=0 git clone "${repoUrl}" "${targetDir}" 2>&1 | sed "s/^/[repos:${repoName}] /") || log "repos" "Clone failed for ${repoName} (continuing)"`);
+      lines.push(`else`);
+      lines.push(`  log "repos" "${repoName} exists but is not a git repo — skipping"`);
+      lines.push(`fi`);
+    }
+    lines.push(``);
+  }
+
   // ── Run a oneshot service ────────────────────────────────────────
   lines.push(`# ── Run oneshot service ──`);
   lines.push(`run_oneshot() {`);
@@ -219,9 +239,10 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
     for (const svc of sorted) {
       const workdir = svc.workdir ?? "/workspace";
       if (svc.env && Object.keys(svc.env).length > 0) {
-        // Wrap in subshell with env vars
+        // Wrap in subshell with env vars — inner quotes must be escaped
+        // since the whole command string is already double-quoted
         const envPrefix = Object.entries(svc.env)
-          .map(([k, v]) => `${k}="${escapeShell(v)}"`)
+          .map(([k, v]) => `${k}=\\\"${escapeShell(v)}\\\"`)
           .join(" ");
         lines.push(`start_daemon "${svc.name}" "${envPrefix} ${escapeShell(svc.command)}" "${workdir}"`);
       } else {
@@ -256,7 +277,15 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(`declare -A DAEMON_RESTART`);
   for (const svc of daemons) {
     const workdir = svc.workdir ?? "/workspace";
-    lines.push(`DAEMON_CMDS["${svc.name}"]="${escapeShell(svc.command)}"`);
+    // Must include env prefix so watchdog restarts with the same env vars
+    if (svc.env && Object.keys(svc.env).length > 0) {
+      const envPrefix = Object.entries(svc.env)
+        .map(([k, v]) => `${k}=\\\"${escapeShell(v)}\\\"`)
+        .join(" ");
+      lines.push(`DAEMON_CMDS["${svc.name}"]="${envPrefix} ${escapeShell(svc.command)}"`);
+    } else {
+      lines.push(`DAEMON_CMDS["${svc.name}"]="${escapeShell(svc.command)}"`);
+    }
     lines.push(`DAEMON_WORKDIRS["${svc.name}"]="${workdir}"`);
     lines.push(`DAEMON_RESTART["${svc.name}"]="${svc.restart}"`);
   }

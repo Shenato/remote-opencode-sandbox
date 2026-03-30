@@ -1,4 +1,4 @@
-import type { ResolvedInstance } from "../types.ts";
+import type { DockerInstallStep, ResolvedInstance } from "../types.ts";
 
 /**
  * Chrome dependency libraries required for headless Chrome in containers.
@@ -39,6 +39,10 @@ export function generateDockerfile(instance: ResolvedInstance): string {
   lines.push(`FROM ${docker.baseImage}`);
   lines.push(``);
 
+  // Collect apt packages from custom install steps
+  const installSteps: DockerInstallStep[] = docker.installSteps ?? [];
+  const stepAptPackages = installSteps.flatMap((s) => s.aptPackages ?? []);
+
   // ── System packages ──────────────────────────────────────────────
   lines.push(`# System packages`);
   const packages = [
@@ -53,6 +57,8 @@ export function generateDockerfile(instance: ResolvedInstance): string {
     // Chrome dependency libraries (explicit for reliability)
     ...(docker.installChrome ? CHROME_DEPS : []),
     ...docker.extraPackages,
+    // Packages required by custom install steps
+    ...stepAptPackages,
   ];
   lines.push(`RUN apt-get update && apt-get install -y --no-install-recommends \\`);
   lines.push(`    ${packages.join(" \\\n    ")} \\`);
@@ -101,6 +107,32 @@ export function generateDockerfile(instance: ResolvedInstance): string {
     lines.push(`# Supabase CLI`);
     lines.push(`RUN curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz \\`);
     lines.push(`    | tar xz -C /usr/local/bin supabase`);
+    lines.push(``);
+  }
+
+  // ── Custom install steps (from templates / .sandbox.json) ────────
+  // Root-context steps first, then coder-context steps.
+  const rootSteps = installSteps.filter((s) => (s.user ?? "root") === "root");
+  const coderSteps = installSteps.filter((s) => s.user === "coder");
+
+  for (const step of rootSteps) {
+    lines.push(`# ${step.comment ?? step.name}`);
+    for (const line of step.instructions) {
+      lines.push(line);
+    }
+    lines.push(``);
+  }
+
+  if (coderSteps.length > 0) {
+    lines.push(`USER coder`);
+    for (const step of coderSteps) {
+      lines.push(`# ${step.comment ?? step.name}`);
+      for (const line of step.instructions) {
+        lines.push(line);
+      }
+      lines.push(``);
+    }
+    lines.push(`USER root`);
     lines.push(``);
   }
 
@@ -157,6 +189,11 @@ export function generateDockerfile(instance: ResolvedInstance): string {
   // (also mounted via compose volume for easy updates without rebuild)
   lines.push(`# OpenCode container config (permission + MCPs)`);
   lines.push(`COPY --chown=coder:coder opencode.docker.json /home/coder/.config/opencode/opencode.json`);
+  lines.push(``);
+
+  // Copy workspace AGENTS.md so the bot knows about its environment
+  lines.push(`# Workspace instructions (auto-generated environment docs for the AI agent)`);
+  lines.push(`COPY --chown=coder:coder AGENTS.md /workspace/AGENTS.md`);
   lines.push(``);
 
   // ── Entrypoint ───────────────────────────────────────────────────

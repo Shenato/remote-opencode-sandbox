@@ -14,6 +14,7 @@ import {
   generateEntrypoint,
   generateOpenCodeConfig,
   generateGitCredentials,
+  generateAgentsMd,
 } from "../generators/index.ts";
 
 /**
@@ -49,6 +50,7 @@ export function buildInstance(instanceName: string): {
   const compose = generateCompose(resolved);
   const entrypoint = generateEntrypoint(resolved);
   const opencodeConfig = generateOpenCodeConfig(resolved);
+  const agentsMd = generateAgentsMd(resolved);
 
   // Write them
   fs.writeFileSync(path.join(genDir, "Dockerfile"), dockerfile, "utf-8");
@@ -62,6 +64,7 @@ export function buildInstance(instanceName: string): {
     opencodeConfig,
     "utf-8"
   );
+  fs.writeFileSync(path.join(genDir, "AGENTS.md"), agentsMd, "utf-8");
 
   // Ensure .env exists with at least the global secrets
   const globalConfig = loadGlobalConfig();
@@ -79,15 +82,23 @@ export function buildInstance(instanceName: string): {
   // GH_TOKEN in .env is used by gh CLI (which reads env vars directly).
   // Git credential authentication is handled separately via per-project
   // credential files (more secure, supports different PATs per project).
-  // The GH_TOKEN here is the "best available" PAT for gh CLI commands.
-  if (globalConfig.defaultGithubPat && !secrets["GH_TOKEN"]) {
-    secrets["GH_TOKEN"] = globalConfig.defaultGithubPat;
-  }
+  //
+  // The default PAT is used for GH_TOKEN because it typically has broader
+  // permissions (e.g. repo creation) needed for `gh` CLI operations that
+  // aren't project-scoped. Per-project PATs only route git push/pull via
+  // credential helpers (includeIf).
   const projects = listProjectsInInstance(instanceName);
-  for (const proj of projects) {
-    if (proj.githubPat !== "default" && proj.githubPat) {
-      secrets["GH_TOKEN"] = proj.githubPat;
+  if (!secrets["GH_TOKEN"]) {
+    // Seed with a per-project PAT as baseline (if no default PAT exists)
+    for (const proj of projects) {
+      if (proj.githubPat !== "default" && proj.githubPat) {
+        secrets["GH_TOKEN"] = proj.githubPat;
+      }
     }
+  }
+  // Default PAT always wins — it's the one with broad permissions
+  if (globalConfig.defaultGithubPat) {
+    secrets["GH_TOKEN"] = globalConfig.defaultGithubPat;
   }
 
   saveInstanceSecrets(instanceName, secrets);

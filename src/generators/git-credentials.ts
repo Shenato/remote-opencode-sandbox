@@ -48,7 +48,7 @@ export function generateGitCredentials(
   // ── Default credential (fallback) ──────────────────────────────
   if (defaultPat) {
     const defaultCredFile = path.join(credDir, "default");
-    fs.writeFileSync(defaultCredFile, `https://${defaultPat}@github.com\n`, {
+    fs.writeFileSync(defaultCredFile, `https://x-access-token:${defaultPat}@github.com\n`, {
       encoding: "utf-8",
       mode: 0o600,
     });
@@ -74,7 +74,7 @@ export function generateGitCredentials(
       // Project has a PAT — use HTTPS credential store
       // Write credential file
       const credFile = path.join(credDir, proj.name);
-      fs.writeFileSync(credFile, `https://${pat}@github.com\n`, {
+      fs.writeFileSync(credFile, `https://x-access-token:${pat}@github.com\n`, {
         encoding: "utf-8",
         mode: 0o600,
       });

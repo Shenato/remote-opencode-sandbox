@@ -205,6 +205,43 @@ export function shellCommand(options: { instance: string }): void {
 }
 
 /**
+ * `sandbox restart-bot [--instance]` — Restart the remote-opencode Discord bot
+ * inside the container without restarting the whole container.
+ * Kills the process and lets the watchdog restart it.
+ */
+export function restartBotCommand(options: { instance: string }): void {
+  const containerName = `sandbox-${options.instance}`;
+
+  // Verify container is running
+  try {
+    const status = execSync(
+      `docker inspect -f '{{.State.Status}}' ${containerName} 2>/dev/null`,
+      { encoding: "utf-8" }
+    ).trim();
+    if (status !== "running") {
+      console.log(chalk.red(`Container ${containerName} is not running.`));
+      process.exit(1);
+    }
+  } catch {
+    console.log(chalk.red(`Container ${containerName} does not exist.`));
+    process.exit(1);
+  }
+
+  // Kill the bot process — pkill may return non-zero even on success
+  // (e.g. when the matched process dies before pkill exits)
+  try {
+    execSync(
+      `docker exec ${containerName} pkill -f "remote-opencode start"`,
+      { stdio: "pipe", timeout: 10000 }
+    );
+  } catch {
+    // Expected — pkill returns 1 if process was already gone
+  }
+
+  console.log(chalk.green("Killed remote-opencode. Watchdog will restart it within ~15s."));
+}
+
+/**
  * `sandbox status`
  */
 export function statusCommand(): void {

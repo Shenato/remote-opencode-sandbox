@@ -10,6 +10,7 @@ import type {
   ResolvedInstance,
   ResolvedProject,
   DockerConfig,
+  DockerInstallStep,
   McpServer,
   ContainerService,
   HostService,
@@ -249,6 +250,37 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     }
   }
 
+  // Merge custom install steps from all projects and instance (by step name)
+  const installStepsByName = new Map<string, DockerInstallStep>();
+  // Start with base template's steps
+  if (baseDocker.installSteps) {
+    for (const step of baseDocker.installSteps) {
+      installStepsByName.set(step.name, step);
+    }
+  }
+  // Overlay steps from all projects' templates and .sandbox.json files
+  for (const proj of projects) {
+    const template = loadBuiltinTemplate(proj.template);
+    if (template?.docker.installSteps) {
+      for (const step of template.docker.installSteps) {
+        installStepsByName.set(step.name, step);
+      }
+    }
+    const sandboxFile = loadProjectSandboxFile(proj.hostPath);
+    if (sandboxFile?.docker?.installSteps) {
+      for (const step of sandboxFile.docker.installSteps) {
+        installStepsByName.set(step.name, step);
+      }
+    }
+  }
+  // Instance-level steps override everything
+  if (instanceConfig.docker?.installSteps) {
+    for (const step of instanceConfig.docker.installSteps) {
+      installStepsByName.set(step.name, step);
+    }
+  }
+  const allInstallSteps = Array.from(installStepsByName.values());
+
   // Should install Chrome if any template needs it
   const needsChrome = projects.some((p) => {
     const t = loadBuiltinTemplate(p.template);
@@ -267,6 +299,7 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     installBun: instanceConfig.docker?.installBun ?? baseDocker.installBun,
     installSupabaseCli: instanceConfig.docker?.installSupabaseCli ?? needsSupabaseCli,
     extraPackages: Array.from(allExtraPackages),
+    installSteps: allInstallSteps.length > 0 ? allInstallSteps : undefined,
   };
 
   // Merge MCP servers from all layers
@@ -409,6 +442,18 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     });
   }
 
+  // Instance-level container services (not tied to any project)
+  if (instanceConfig.services) {
+    for (const svc of instanceConfig.services) {
+      const resolved: ContainerService = {
+        ...svc,
+        name: svc.name.includes(":") ? svc.name : `instance:${svc.name}`,
+        workdir: svc.workdir ?? CONTAINER_WORKSPACE,
+      };
+      allContainerServices.push(resolved);
+    }
+  }
+
   // Collect all ports
   const ports = new Set<string>();
   for (const proj of projects) {
@@ -460,5 +505,6 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     ports: Array.from(ports),
     permission,
     ssh,
+    extraRepos: instanceConfig.extraRepos ?? [],
   };
 }
