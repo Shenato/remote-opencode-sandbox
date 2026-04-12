@@ -22,6 +22,7 @@ import {
   instanceRemoveCommand,
 } from "./commands/instance.ts";
 import { setupAutostartCommand } from "./commands/autostart.ts";
+import { addRepoCommand, removeRepoCommand } from "./commands/add-repo.ts";
 
 export function runCli(): void {
   const program = new Command();
@@ -241,6 +242,32 @@ export function runCli(): void {
     .description("Delete an instance and its config")
     .action(async (name) => {
       await instanceRemoveCommand(name);
+    });
+
+  // ── add-repo ────────────────────────────────────────────────────
+  program
+    .command("add-repo <url>")
+    .description("Add an extra repository to be cloned inside the container")
+    .option(
+      "-i, --instance <name>",
+      "Instance to add to",
+      DEFAULT_INSTANCE
+    )
+    .action((url: string, options) => {
+      addRepoCommand(url, options);
+    });
+
+  // ── remove-repo ────────────────────────────────────────────────
+  program
+    .command("remove-repo <url-or-name>")
+    .description("Remove an extra repository from an instance")
+    .option(
+      "-i, --instance <name>",
+      "Instance to remove from",
+      DEFAULT_INSTANCE
+    )
+    .action((urlOrName: string, options) => {
+      removeRepoCommand(urlOrName, options);
     });
 
   // ── setup-autostart ─────────────────────────────────────────────

@@ -246,6 +246,157 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
     }
   }
 
+  // ── Agent Team System ─────────────────────────────────────────────────────
+  if (instance.agentTeam) {
+    const at = instance.agentTeam;
+    lines.push(`## Agent Team System`);
+    lines.push(``);
+    lines.push(`This container runs an autonomous multi-agent system with three specialized`);
+    lines.push(`roles operating on per-project kanban boards.`);
+    lines.push(``);
+
+    lines.push(`### Agent Toolkit`);
+    lines.push(``);
+    lines.push(`The toolkit is a first-class infrastructure component, not a regular repository:`);
+    lines.push(``);
+    lines.push(`- **Symlink**: \`${at.toolkitSymlinkPath}\` → \`${at.toolkitPath}\``);
+    lines.push(`- **Source**: \`${at.toolkitRepo}\``);
+    lines.push(`- **CLI**: \`bun run ${at.toolkitSymlinkPath}/bin/cli.ts <command>\``);
+    lines.push(``);
+    lines.push(`The toolkit handles:`);
+    lines.push(`- Workspace-level setup: \`${at.toolkitSymlinkPath}/bin/cli.ts setup\` → creates \`/workspace/.agents/\` with skills and cross-project config`);
+    lines.push(`- Per-project init: \`${at.toolkitSymlinkPath}/bin/cli.ts init --port <port>\` → scaffolds \`.agents/\` in each project`);
+    lines.push(`- Agent orchestration: \`daemon\`, \`work\`, \`review\`, \`plan\` commands`);
+    lines.push(`- Discord notifications: \`notify\`, \`discord-upload\` commands`);
+    lines.push(``);
+    lines.push(`Always use the symlink path (\`${at.toolkitSymlinkPath}\`) when referencing the toolkit.`);
+    lines.push(``);
+
+    lines.push(`### Agents`);
+    lines.push(``);
+    lines.push(`| Agent | Role |`);
+    lines.push(`|-------|------|`);
+    lines.push(`| **kanban-worker** | Picks up \`todo\` items, implements them on a branch, moves to \`in_review\` |`);
+    lines.push(`| **kanban-reviewer** | Reviews \`in_review\` items, approves or rejects with notes |`);
+    lines.push(`| **kanban-planner** | Breaks down goals into actionable kanban items |`);
+    lines.push(``);
+
+    lines.push(`### Slash Commands`);
+    lines.push(``);
+    lines.push(`These commands are registered in OpenCode and can be triggered via Discord or \`opencode run\`:`);
+    lines.push(``);
+    lines.push(`| Command | Description |`);
+    lines.push(`|---------|-------------|`);
+    lines.push(`| \`/kanban-add\` | Add a new item to the project's kanban board |`);
+    lines.push(`| \`/kanban-work\` | Manually trigger the worker agent |`);
+    lines.push(`| \`/kanban-review\` | Manually trigger the reviewer agent |`);
+    lines.push(`| \`/kanban-status\` | Show current kanban board status |`);
+    lines.push(`| \`/discord-notify\` | Send a notification to the project's Discord channel |`);
+    lines.push(`| \`/discord-upload\` | Upload a file to the project's Discord channel |`);
+    lines.push(``);
+
+    lines.push(`### Per-Project Configuration`);
+    lines.push(``);
+    lines.push(`Each project has an \`opencode serve\` instance and optionally a cron daemon:`);
+    lines.push(``);
+    lines.push(`| Project | Type | Serve Port | Cron | Daemon Port | Worktree | Worker Model | Reviewer Model | Intervals |`);
+    lines.push(`|---------|------|------------|------|-------------|----------|--------------|----------------|-----------|`);
+
+    // Bind-mounted projects
+    for (const proj of instance.projects) {
+      const pa = at.projects[proj.name];
+      if (!pa) continue;
+      const cronStatus = pa.cronEnabled ? "Yes" : "No";
+      const daemonPort = pa.daemonPort ? String(pa.daemonPort) : "—";
+      const worktree = pa.worktreePath ? `\`${pa.worktreePath}\`` : "—";
+      const intervals = pa.cronEnabled
+        ? `${pa.workerIntervalMinutes}m / ${pa.reviewerIntervalMinutes}m`
+        : "—";
+      lines.push(`| ${proj.name} | project | ${pa.servePort} | ${cronStatus} | ${daemonPort} | ${worktree} | \`${pa.workerModel}\` | \`${pa.reviewerModel}\` | ${intervals} |`);
+    }
+
+    // Extra repos with agent configs
+    for (const [repoName, pa] of Object.entries(at.projects)) {
+      // Skip if already listed as a bind-mounted project
+      if (instance.projects.some((p) => p.name === repoName)) continue;
+      const cronStatus = pa.cronEnabled ? "Yes" : "No";
+      const daemonPort = pa.daemonPort ? String(pa.daemonPort) : "—";
+      const worktree = pa.worktreePath ? `\`${pa.worktreePath}\`` : "—";
+      const intervals = pa.cronEnabled
+        ? `${pa.workerIntervalMinutes}m / ${pa.reviewerIntervalMinutes}m`
+        : "—";
+      lines.push(`| ${repoName} | extraRepo | ${pa.servePort} | ${cronStatus} | ${daemonPort} | ${worktree} | \`${pa.workerModel}\` | \`${pa.reviewerModel}\` | ${intervals} |`);
+    }
+    lines.push(``);
+
+    lines.push(`### How It Works`);
+    lines.push(``);
+    lines.push(`1. The toolkit at \`${at.toolkitSymlinkPath}\` manages the entire agent infrastructure.`);
+    lines.push(`2. The workspace-level \`/workspace/.agents/\` directory contains:`);
+    lines.push(`   - Cross-project routing and shared agent config`);
+    lines.push(`   - Skills installed from the toolkit`);
+    lines.push(`3. Each project has a \`.agents/\` directory containing:`);
+    lines.push(`   - \`config.json\` — agent configuration (port, models, intervals)`);
+    lines.push(`   - \`kanban.json\` — the project's kanban board`);
+    lines.push(`   - \`worker.md\` / \`reviewer.md\` / \`planner.md\` — per-project agent instructions`);
+    lines.push(`4. The toolkit's \`SKILL.md\` at \`${at.toolkitSymlinkPath}/SKILL.md\` contains the Discord notification protocol.`);
+    lines.push(`5. Agents communicate via \`opencode run --attach http://localhost:<port> --agent <agent-name>\`.`);
+    lines.push(`6. When cron is enabled, the \`agents-setup daemon\` periodically dispatches worker and reviewer agents.`);
+    lines.push(``);
+
+    // Worktree isolation section (only if any project has cron enabled)
+    const cronProjects = Object.entries(at.projects).filter(([, pa]) => pa.cronEnabled);
+    if (cronProjects.length > 0) {
+      lines.push(`### Worktree Isolation`);
+      lines.push(``);
+      lines.push(`Cron-enabled projects use **git worktree isolation** so daemon agents don't`);
+      lines.push(`conflict with interactive Discord-prompted work on the same project.`);
+      lines.push(``);
+      lines.push(`**Problem solved**: Without isolation, both the Discord bot and daemon agents`);
+      lines.push(`work in the same git checkout, causing \`.git/index.lock\` contention and file`);
+      lines.push(`system races when both are active simultaneously.`);
+      lines.push(``);
+      lines.push(`**How it works**:`);
+      lines.push(``);
+      lines.push(`- Each cron-enabled project gets a **detached worktree** at \`/workspace/.worktrees/<project>\``);
+      lines.push(`- The worktree has its own \`.agents/config.json\` with the **daemon port** (not the main serve port)`);
+      lines.push(`- A separate \`opencode serve\` runs in the worktree on the daemon port`);
+      lines.push(`- The \`agents-setup daemon\` runs from the worktree and connects to the daemon serve`);
+      lines.push(`- The main checkout at \`/workspace/<project>\` is used exclusively by Discord-prompted work`);
+      lines.push(``);
+      lines.push(`**Layout**:`);
+      lines.push(`\`\`\``);
+      lines.push(`/workspace/<project>/          ← Discord bot + interactive work (port: servePort)`);
+      lines.push(`/workspace/.worktrees/<project>/ ← Daemon agents only (port: daemonPort)`);
+      lines.push(`\`\`\``);
+      lines.push(``);
+      lines.push(`| Project | Main Checkout | Worktree | Serve Port | Daemon Port |`);
+      lines.push(`|---------|---------------|----------|------------|-------------|`);
+      for (const [name, pa] of cronProjects) {
+        lines.push(`| ${name} | \`/workspace/${name}\` | \`${pa.worktreePath}\` | ${pa.servePort} | ${pa.daemonPort} |`);
+      }
+      lines.push(``);
+      lines.push(`> **Important**: Do NOT manually modify files in \`/workspace/.worktrees/\`.`);
+      lines.push(`> These directories are managed by the entrypoint and recreated on each container start.`);
+      lines.push(``);
+    }
+
+    lines.push(`### Manual Agent Triggers`);
+    lines.push(``);
+    lines.push(`To manually trigger an agent from the command line:`);
+    lines.push(`\`\`\`bash`);
+    lines.push(`# Trigger worker on a specific project`);
+    const firstProj = Object.entries(at.projects)[0];
+    if (firstProj) {
+      lines.push(`opencode run --attach http://localhost:${firstProj[1].servePort} --agent kanban-worker`);
+      lines.push(``);
+      lines.push(`# Trigger reviewer`);
+      lines.push(`opencode run --attach http://localhost:${firstProj[1].servePort} --agent kanban-reviewer`);
+    }
+    lines.push(`\`\`\``);
+    lines.push(``);
+  }
+
   // ── Extra Repositories ───────────────────────────────────────────────────
   if (instance.extraRepos.length > 0) {
     lines.push(`## Extra Repositories`);

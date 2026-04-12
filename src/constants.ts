@@ -31,3 +31,23 @@ export const RESTART_DELAY = 5;
 export const MAX_RAPID_RESTARTS = 5;
 export const RAPID_WINDOW = 120;
 export const BACKOFF_DELAY = 60;
+
+/** Agent toolkit */
+export const TOOLKIT_SYMLINK_NAME = ".toolkit";
+
+/** Daemon worktrees — isolated git worktrees for cron agents */
+export const CONTAINER_WORKTREES_DIR = "/workspace/.worktrees";
+export const DAEMON_PORT_OFFSET = 100;
+
+/** Agent team defaults */
+export const AGENT_DEFAULT_WORKER_MODEL = "claude-sonnet-4-20250514";
+export const AGENT_DEFAULT_REVIEWER_MODEL = "claude-sonnet-4-20250514";
+export const AGENT_DEFAULT_PLANNER_MODEL = "claude-haiku-4-20250414";
+export const AGENT_DEFAULT_WORKER_STEPS = 50;
+export const AGENT_DEFAULT_REVIEWER_STEPS = 30;
+export const AGENT_DEFAULT_PLANNER_STEPS = 20;
+export const AGENT_DEFAULT_WORKER_INTERVAL = 30;
+export const AGENT_DEFAULT_REVIEWER_INTERVAL = 60;
+export const AGENT_DEFAULT_RUN_TIMEOUT = 300;
+export const AGENT_DEFAULT_SERVE_PORT_BASE = 4096;
+export const AGENT_DEFAULT_DISCORD_CHANNEL_SUFFIX = "dev";

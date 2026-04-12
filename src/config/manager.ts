@@ -15,6 +15,9 @@ import type {
   ContainerService,
   HostService,
   SshConfig,
+  AgentTeamConfig,
+  ResolvedAgentTeamConfig,
+  ResolvedProjectAgentConfig,
 } from "../types.ts";
 import {
   CONFIG_DIR,
@@ -24,6 +27,20 @@ import {
   CONTAINER_WORKSPACE,
   PROJECT_SANDBOX_FILE,
   DEFAULT_BASE_IMAGE,
+  TOOLKIT_SYMLINK_NAME,
+  AGENT_DEFAULT_WORKER_MODEL,
+  AGENT_DEFAULT_REVIEWER_MODEL,
+  AGENT_DEFAULT_PLANNER_MODEL,
+  AGENT_DEFAULT_WORKER_STEPS,
+  AGENT_DEFAULT_REVIEWER_STEPS,
+  AGENT_DEFAULT_PLANNER_STEPS,
+  AGENT_DEFAULT_WORKER_INTERVAL,
+  AGENT_DEFAULT_REVIEWER_INTERVAL,
+  AGENT_DEFAULT_RUN_TIMEOUT,
+  AGENT_DEFAULT_SERVE_PORT_BASE,
+  AGENT_DEFAULT_DISCORD_CHANNEL_SUFFIX,
+  CONTAINER_WORKTREES_DIR,
+  DAEMON_PORT_OFFSET,
 } from "../constants.ts";
 import { loadBuiltinTemplate } from "../templates/index.ts";
 
@@ -212,6 +229,97 @@ export function saveInstanceSecrets(
 }
 
 // ─── Config Resolution (merge all layers) ──────────────────────────────────
+
+/**
+ * Extract the repository name from an HTTPS git URL.
+ * e.g. "https://github.com/org/agents-setup.git" → "agents-setup"
+ */
+function repoNameFromUrl(url: string): string {
+  const lastSegment = url.split("/").pop() ?? url;
+  return lastSegment.replace(/\.git$/, "");
+}
+
+/**
+ * Resolve agent team config by merging instance-level defaults with
+ * per-project overrides and extra-repo agent configs.
+ * Returns undefined when the agent team is disabled.
+ */
+function resolveAgentTeam(
+  instanceConfig: InstanceConfig,
+  projects: ProjectConfig[],
+): ResolvedAgentTeamConfig | undefined {
+  const agentTeam = instanceConfig.agentTeam;
+  if (!agentTeam?.enabled || !agentTeam.toolkitRepo) return undefined;
+
+  const toolkitName = repoNameFromUrl(agentTeam.toolkitRepo);
+  const toolkitPath = `${CONTAINER_WORKSPACE}/${toolkitName}`;
+  const toolkitSymlinkPath = `${CONTAINER_WORKSPACE}/${TOOLKIT_SYMLINK_NAME}`;
+
+  // Resolve per-project agent configs (bind-mounted projects)
+  const resolvedProjects: Record<string, ResolvedProjectAgentConfig> = {};
+  for (let i = 0; i < projects.length; i++) {
+    const proj = projects[i]!;
+    const projAgent = proj.agentConfig;
+    const cronEnabled = projAgent?.cronEnabled ?? false;
+    const servePort = projAgent?.servePort ?? AGENT_DEFAULT_SERVE_PORT_BASE + i;
+
+    resolvedProjects[proj.name] = {
+      servePort,
+      daemonPort: cronEnabled ? servePort + DAEMON_PORT_OFFSET : undefined,
+      worktreePath: cronEnabled ? `${CONTAINER_WORKTREES_DIR}/${proj.name}` : undefined,
+      cronEnabled,
+      workerModel: projAgent?.workerModel ?? agentTeam.workerModel ?? AGENT_DEFAULT_WORKER_MODEL,
+      reviewerModel: projAgent?.reviewerModel ?? agentTeam.reviewerModel ?? AGENT_DEFAULT_REVIEWER_MODEL,
+      plannerModel: projAgent?.plannerModel ?? agentTeam.plannerModel ?? AGENT_DEFAULT_PLANNER_MODEL,
+      workerSteps: agentTeam.workerSteps ?? AGENT_DEFAULT_WORKER_STEPS,
+      reviewerSteps: agentTeam.reviewerSteps ?? AGENT_DEFAULT_REVIEWER_STEPS,
+      plannerSteps: agentTeam.plannerSteps ?? AGENT_DEFAULT_PLANNER_STEPS,
+      workerIntervalMinutes: agentTeam.workerIntervalMinutes ?? AGENT_DEFAULT_WORKER_INTERVAL,
+      reviewerIntervalMinutes: agentTeam.reviewerIntervalMinutes ?? AGENT_DEFAULT_REVIEWER_INTERVAL,
+      runTimeoutSeconds: agentTeam.runTimeoutSeconds ?? AGENT_DEFAULT_RUN_TIMEOUT,
+    };
+  }
+
+  // Resolve agent configs for extra repos (not bind-mounted, live in container volume)
+  if (agentTeam.repoAgentConfigs) {
+    const existingCount = projects.length;
+    const repoEntries = Object.entries(agentTeam.repoAgentConfigs);
+    for (let i = 0; i < repoEntries.length; i++) {
+      const [repoName, repoAgent] = repoEntries[i]!;
+      const cronEnabled = repoAgent.cronEnabled ?? false;
+      const servePort = repoAgent.servePort ?? AGENT_DEFAULT_SERVE_PORT_BASE + existingCount + i;
+
+      resolvedProjects[repoName] = {
+        servePort,
+        daemonPort: cronEnabled ? servePort + DAEMON_PORT_OFFSET : undefined,
+        worktreePath: cronEnabled ? `${CONTAINER_WORKTREES_DIR}/${repoName}` : undefined,
+        cronEnabled,
+        workerModel: repoAgent.workerModel ?? agentTeam.workerModel ?? AGENT_DEFAULT_WORKER_MODEL,
+        reviewerModel: repoAgent.reviewerModel ?? agentTeam.reviewerModel ?? AGENT_DEFAULT_REVIEWER_MODEL,
+        plannerModel: repoAgent.plannerModel ?? agentTeam.plannerModel ?? AGENT_DEFAULT_PLANNER_MODEL,
+        workerSteps: agentTeam.workerSteps ?? AGENT_DEFAULT_WORKER_STEPS,
+        reviewerSteps: agentTeam.reviewerSteps ?? AGENT_DEFAULT_REVIEWER_STEPS,
+        plannerSteps: agentTeam.plannerSteps ?? AGENT_DEFAULT_PLANNER_STEPS,
+        workerIntervalMinutes: agentTeam.workerIntervalMinutes ?? AGENT_DEFAULT_WORKER_INTERVAL,
+        reviewerIntervalMinutes: agentTeam.reviewerIntervalMinutes ?? AGENT_DEFAULT_REVIEWER_INTERVAL,
+        runTimeoutSeconds: agentTeam.runTimeoutSeconds ?? AGENT_DEFAULT_RUN_TIMEOUT,
+      };
+    }
+  }
+
+  return {
+    enabled: true,
+    toolkitName,
+    toolkitRepo: agentTeam.toolkitRepo,
+    toolkitPath,
+    toolkitSymlinkPath,
+    discord: {
+      enabled: agentTeam.discord?.enabled ?? true,
+      channelSuffix: agentTeam.discord?.channelSuffix ?? AGENT_DEFAULT_DISCORD_CHANNEL_SUFFIX,
+    },
+    projects: resolvedProjects,
+  };
+}
 
 export function resolveInstance(instanceName: string): ResolvedInstance | null {
   const instanceConfig = loadInstanceConfig(instanceName);
@@ -493,6 +601,146 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     }
   }
 
+  // Resolve agent team config
+  const agentTeam = resolveAgentTeam(instanceConfig, projects);
+
+  // Attach resolved agent config to each project
+  if (agentTeam) {
+    for (const rp of resolvedProjects) {
+      rp.agentConfig = agentTeam.projects[rp.name];
+    }
+  }
+
+  // Inject agent team services when enabled
+  const extraRepos = [...(instanceConfig.extraRepos ?? [])];
+  if (agentTeam) {
+    // The toolkit repo is NOT added to extraRepos — it gets its own dedicated
+    // clone/symlink block in the entrypoint generator (first-class entity).
+
+    // Oneshot: bun install in toolkit directory
+    const toolkitInstallSvc: ContainerService = {
+      name: "instance:toolkit-install",
+      command: "bun install",
+      workdir: agentTeam.toolkitPath,
+      type: "oneshot",
+      restart: "never",
+    };
+    allContainerServices.push(toolkitInstallSvc);
+
+    // Projects with local file dependencies on the toolkit (e.g.
+    // "my-toolkit": "/workspace/agents-setup" in package.json)
+    // need their install oneshots to run AFTER the toolkit is cloned and
+    // installed.  Without this, topological sort may schedule project installs
+    // before the toolkit directory even exists → ENOENT crash loop.
+    // Adding the dependency universally is harmless for projects without the
+    // local dep — it only adds a brief ordering constraint.
+    for (const svc of allContainerServices) {
+      if (svc.type === "oneshot" && svc.name.endsWith(":install")) {
+        svc.dependsOn = svc.dependsOn ?? [];
+        if (!svc.dependsOn.includes("instance:toolkit-install")) {
+          svc.dependsOn.push("instance:toolkit-install");
+        }
+      }
+    }
+
+    // Oneshot: workspace-level setup (creates /workspace/.agents/, installs skills)
+    // This runs the toolkit's `setup` command which:
+    //   - Creates workspace-level .agents/ directory with cross-project config
+    //   - Discovers all projects and their skills
+    //   - Creates cross-project skill symlinks in /workspace/.agents/skills/
+    //   - Writes workspace.json manifest for project/skill discovery
+    const toolkitSetupSvc: ContainerService = {
+      name: "instance:toolkit-setup",
+      command: `bun run ${agentTeam.toolkitSymlinkPath}/bin/cli.ts setup`,
+      workdir: CONTAINER_WORKSPACE,
+      type: "oneshot",
+      restart: "never",
+      dependsOn: ["instance:toolkit-install"],
+    };
+    allContainerServices.push(toolkitSetupSvc);
+
+    // Per-project agent services (both bind-mounted projects and extra repos)
+    for (const [projectName, projAgent] of Object.entries(agentTeam.projects)) {
+      const workspacePath = `${CONTAINER_WORKSPACE}/${projectName}`;
+
+      // Oneshot: agents-setup init (scaffolds per-project .agents/ directory)
+      const initSvc: ContainerService = {
+        name: `${projectName}:agents-init`,
+        command: `bun run ${agentTeam.toolkitSymlinkPath}/bin/cli.ts init --port ${projAgent.servePort}`,
+        workdir: workspacePath,
+        type: "oneshot",
+        restart: "never",
+        dependsOn: ["instance:toolkit-setup"],
+      };
+      allContainerServices.push(initSvc);
+
+      // Daemon: opencode serve for this project
+      const serveSvc: ContainerService = {
+        name: `${projectName}:opencode-serve`,
+        command: `opencode serve --port ${projAgent.servePort}`,
+        workdir: workspacePath,
+        type: "daemon",
+        restart: "always",
+        port: projAgent.servePort,
+        dependsOn: [`${projectName}:agents-init`],
+      };
+      allContainerServices.push(serveSvc);
+
+      // Daemon: agents-setup cron daemon (only when cronEnabled)
+      // Uses git worktree isolation so daemon agents don't conflict with
+      // interactive Discord-prompted work on the same project.
+      if (projAgent.cronEnabled) {
+        const worktreePath = `${CONTAINER_WORKTREES_DIR}/${projectName}`;
+        const daemonPort = projAgent.servePort + DAEMON_PORT_OFFSET;
+
+        // Oneshot: create git worktree (detached HEAD, fresh each container start)
+        const worktreeCreateSvc: ContainerService = {
+          name: `${projectName}:worktree-create`,
+          command: `rm -rf ${worktreePath} && git worktree prune && git worktree add --detach ${worktreePath}`,
+          workdir: workspacePath,
+          type: "oneshot",
+          restart: "never",
+          // No explicit deps — preamble clones repos before any oneshots run
+        };
+        allContainerServices.push(worktreeCreateSvc);
+
+        // Oneshot: init agent config in worktree (with daemon port)
+        const worktreeInitSvc: ContainerService = {
+          name: `${projectName}:worktree-init`,
+          command: `bun run ${agentTeam.toolkitSymlinkPath}/bin/cli.ts init --port ${daemonPort} --cronEnabled`,
+          workdir: worktreePath,
+          type: "oneshot",
+          restart: "never",
+          dependsOn: [`${projectName}:worktree-create`, "instance:toolkit-setup"],
+        };
+        allContainerServices.push(worktreeInitSvc);
+
+        // Daemon: opencode serve in worktree (daemon port, separate from main serve)
+        const daemonServeSvc: ContainerService = {
+          name: `${projectName}:daemon-serve`,
+          command: `opencode serve --port ${daemonPort}`,
+          workdir: worktreePath,
+          type: "daemon",
+          restart: "always",
+          port: daemonPort,
+          dependsOn: [`${projectName}:worktree-init`],
+        };
+        allContainerServices.push(daemonServeSvc);
+
+        // Daemon: agents-setup cron daemon (runs from worktree, connects to daemon-serve)
+        const daemonSvc: ContainerService = {
+          name: `${projectName}:agents-daemon`,
+          command: `bun run ${agentTeam.toolkitSymlinkPath}/bin/cli.ts daemon --project ${projectName} --port ${daemonPort}`,
+          workdir: worktreePath,
+          type: "daemon",
+          restart: "always",
+          dependsOn: [`${projectName}:daemon-serve`],
+        };
+        allContainerServices.push(daemonSvc);
+      }
+    }
+  }
+
   return {
     name: instanceName,
     projects: resolvedProjects,
@@ -505,6 +753,7 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     ports: Array.from(ports),
     permission,
     ssh,
-    extraRepos: instanceConfig.extraRepos ?? [],
+    extraRepos,
+    agentTeam,
   };
 }

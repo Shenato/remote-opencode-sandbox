@@ -123,6 +123,32 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
     lines.push(``);
   }
 
+  // ── Agent toolkit clone/symlink (first-class, before extra repos) ───
+  if (instance.agentTeam) {
+    const at = instance.agentTeam;
+    const repoName = at.toolkitName;
+    const targetDir = at.toolkitPath;
+    const symlinkPath = at.toolkitSymlinkPath;
+
+    lines.push(`# ── Agent toolkit (${repoName}) — first-class infrastructure ──`);
+    lines.push(`if [ -d "${targetDir}/.git" ]; then`);
+    lines.push(`  log "toolkit" "Pulling ${repoName}..."`);
+    lines.push(`  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Pull failed for ${repoName} (continuing)"`);
+    lines.push(`elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`);
+    lines.push(`  log "toolkit" "Cloning ${repoName}..."`);
+    lines.push(`  (GIT_TERMINAL_PROMPT=0 git clone "${at.toolkitRepo}" "${targetDir}" 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Clone failed for ${repoName} (continuing)"`);
+    lines.push(`else`);
+    lines.push(`  log "toolkit" "${repoName} exists but is not a git repo — skipping clone"`);
+    lines.push(`fi`);
+    lines.push(``);
+    lines.push(`# Symlink toolkit to workspace root for discoverability`);
+    lines.push(`if [ -d "${targetDir}" ]; then`);
+    lines.push(`  ln -sfn "${targetDir}" "${symlinkPath}"`);
+    lines.push(`  log "toolkit" "Symlinked ${symlinkPath} -> ${targetDir}"`);
+    lines.push(`fi`);
+    lines.push(``);
+  }
+
   // ── Clone/pull extra repositories ─────────────────────────────────
   if (instance.extraRepos.length > 0) {
     lines.push(`# ── Extra repositories (clone if missing, pull if present) ──`);

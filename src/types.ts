@@ -52,6 +52,8 @@ export interface InstanceConfig {
    * On subsequent starts, existing repos are pulled instead of cloned.
    */
   extraRepos?: string[];
+  /** Multi-agent team configuration (worker/reviewer/planner on kanban boards) */
+  agentTeam?: AgentTeamConfig;
 }
 
 /** Docker image configuration */
@@ -117,6 +119,8 @@ export interface ProjectConfig {
   mcp?: Record<string, McpServer>;
   /** OpenCode permission level */
   permission: "allow" | "ask";
+  /** Per-project agent team overrides (serve port, cron, model overrides) */
+  agentConfig?: ProjectAgentConfig;
 }
 
 /** Project-level .sandbox.json that lives in the repo */
@@ -177,6 +181,131 @@ export interface HostService {
   dependsOn?: string[];
 }
 
+// ─── Agent Team Types ──────────────────────────────────────────────────────
+
+/**
+ * Instance-level agent team configuration.
+ *
+ * When enabled, the sandbox generates a multi-agent system with worker,
+ * reviewer, and planner agents that operate on per-project kanban boards.
+ * A user-provided toolkit repo (e.g. `agents-setup`) supplies the CLI
+ * that orchestrates cron loops, board management, and Discord notifications.
+ */
+export interface AgentTeamConfig {
+  /** Master switch — generates agent infrastructure when true */
+  enabled: boolean;
+  /**
+   * Git URL of the toolkit repo (HTTPS or SSH).
+   *
+   * This is NOT treated as a regular extraRepo — it is a first-class entity:
+   * 1. Cloned into /workspace/<repo-name>/
+   * 2. Symlinked to /workspace/.toolkit for workspace-root discoverability
+   * 3. `bun install` is run in it
+   * 4. Its `setup` command creates /workspace/.agents/ (skills, workspace config)
+   * 5. Its `init` command scaffolds per-project .agents/ dirs
+   *
+   * Must expose a CLI at `bin/cli.ts` with commands: setup, init, work, review, plan, daemon.
+   */
+  toolkitRepo?: string;
+  /** Default model for the worker agent (can be overridden per-project) */
+  workerModel?: string;
+  /** Default model for the reviewer agent (can be overridden per-project) */
+  reviewerModel?: string;
+  /** Default model for the planner agent (can be overridden per-project) */
+  plannerModel?: string;
+  /** Max steps for the worker agent per run */
+  workerSteps?: number;
+  /** Max steps for the reviewer agent per run */
+  reviewerSteps?: number;
+  /** Max steps for the planner agent per run */
+  plannerSteps?: number;
+  /** Minutes between worker cron runs (default: 30) */
+  workerIntervalMinutes?: number;
+  /** Minutes between reviewer cron runs (default: 60) */
+  reviewerIntervalMinutes?: number;
+  /** Hard timeout in seconds for each agent run (default: 300) */
+  runTimeoutSeconds?: number;
+  /** Discord notification settings for agent activity */
+  discord?: AgentDiscordConfig;
+  /**
+   * Agent configs for repos that aren't full projects (e.g. repos in `extraRepos`).
+   *
+   * Keyed by repo name (the directory name under /workspace/, e.g. "sand-surfer").
+   * These repos get the same agent services (opencode-serve, agents-init, agents-daemon)
+   * as full projects, but they aren't bind-mounted from the host — they live inside
+   * the container volume.
+   */
+  repoAgentConfigs?: Record<string, ProjectAgentConfig>;
+}
+
+/** Discord notification config for the agent team */
+export interface AgentDiscordConfig {
+  /** Whether agents should send Discord notifications (default: true when agent team enabled) */
+  enabled?: boolean;
+  /**
+   * Discord channel name suffix for notifications.
+   * Agents look for a channel named "<project-name>-<suffix>" or fall back to "<project-name>".
+   * Default: "dev"
+   */
+  channelSuffix?: string;
+}
+
+/**
+ * Per-project agent overrides stored in ProjectConfig.
+ *
+ * These let individual projects customize their agent behaviour
+ * (different models, disable cron, change serve port) without
+ * affecting other projects in the same instance.
+ */
+export interface ProjectAgentConfig {
+  /** Port for `opencode serve` for this project (must be unique per instance) */
+  servePort: number;
+  /** Whether the cron daemon runs for this project (default: false) */
+  cronEnabled?: boolean;
+  /** Override the worker model for this project */
+  workerModel?: string;
+  /** Override the reviewer model for this project */
+  reviewerModel?: string;
+  /** Override the planner model for this project */
+  plannerModel?: string;
+}
+
+/** Fully resolved per-project agent config (all defaults applied) */
+export interface ResolvedProjectAgentConfig {
+  servePort: number;
+  /** Port for daemon's separate opencode serve (servePort + offset). Only set when cronEnabled. */
+  daemonPort?: number;
+  /** Path to the git worktree for daemon agents. Only set when cronEnabled. */
+  worktreePath?: string;
+  cronEnabled: boolean;
+  workerModel: string;
+  reviewerModel: string;
+  plannerModel: string;
+  workerSteps: number;
+  reviewerSteps: number;
+  plannerSteps: number;
+  workerIntervalMinutes: number;
+  reviewerIntervalMinutes: number;
+  runTimeoutSeconds: number;
+}
+
+/** Fully resolved instance-level agent team config */
+export interface ResolvedAgentTeamConfig {
+  enabled: boolean;
+  /** Name derived from the toolkit repo URL (e.g. "agents-setup") */
+  toolkitName: string;
+  /** Full git URL of the toolkit repo */
+  toolkitRepo: string;
+  /** Actual clone path inside the container: /workspace/<toolkitName> */
+  toolkitPath: string;
+  /** Symlink path at workspace root: /workspace/.toolkit */
+  toolkitSymlinkPath: string;
+  /** Discord notification settings */
+  discord: { enabled: boolean; channelSuffix: string };
+  /** Per-project resolved configs, keyed by project name (includes both projects and extra repos) */
+  projects: Record<string, ResolvedProjectAgentConfig>;
+}
+
 /** MCP server configuration */
 export interface McpServer {
   type: "local" | "remote";
@@ -207,6 +336,8 @@ export interface Template {
   permission: "allow" | "ask";
   /** Default extra env var names to prompt as secrets */
   defaultSecrets: string[];
+  /** Default agent team configuration (disabled by default) */
+  agentTeam?: AgentTeamConfig;
 }
 
 /** Rule for automatically rewriting env vars for container use */
@@ -241,6 +372,8 @@ export interface ResolvedInstance {
   ssh?: SshConfig;
   /** Extra repos to clone/pull at container startup */
   extraRepos: string[];
+  /** Resolved agent team config (undefined when agent team disabled) */
+  agentTeam?: ResolvedAgentTeamConfig;
 }
 
 export interface ResolvedProject {
@@ -249,4 +382,6 @@ export interface ResolvedProject {
   workspacePath: string; // /workspace/<name>
   services: ServiceManifest;
   envOverrides: Record<string, string>;
+  /** Resolved agent config for this project (undefined when agent team disabled) */
+  agentConfig?: ResolvedProjectAgentConfig;
 }

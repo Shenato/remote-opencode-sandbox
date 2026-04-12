@@ -4,6 +4,7 @@ import { input, select, confirm, password, checkbox } from "@inquirer/prompts";
 import chalk from "chalk";
 import type {
   ProjectConfig,
+  ProjectAgentConfig,
   ContainerService,
   HostService,
   ProjectSandboxFile,
@@ -362,6 +363,83 @@ export async function addCommand(
   // ── Permission ──────────────────────────────────────────────────
   const permissionSetting = sandboxFile?.permission ?? template.permission;
 
+  // ── Agent Team Configuration ───────────────────────────────────
+  let agentConfig: ProjectAgentConfig | undefined;
+
+  // Check if the instance has agent team enabled
+  const currentInstanceConfig = loadInstanceConfig(instanceName)!;
+  if (currentInstanceConfig.agentTeam?.enabled) {
+    console.log(chalk.bold("\nAgent Team Configuration"));
+    console.log(
+      chalk.dim("This instance has the agent team system enabled.\n")
+    );
+
+    const configureAgent = await confirm({
+      message: "Configure agent settings for this project?",
+      default: true,
+    });
+
+    if (configureAgent) {
+      // Serve port — auto-assign based on existing projects
+      const existingAgentPorts = existing
+        .filter((p) => p.name !== projectName && p.agentConfig?.servePort)
+        .map((p) => p.agentConfig!.servePort);
+      const defaultPort =
+        existingAgentPorts.length > 0
+          ? Math.max(...existingAgentPorts) + 1
+          : 4096;
+
+      const portStr = await input({
+        message: "OpenCode serve port for this project:",
+        default: String(defaultPort),
+        validate: (v) => {
+          const n = parseInt(v, 10);
+          if (isNaN(n) || n < 1024 || n > 65535) return "Must be 1024-65535";
+          if (existingAgentPorts.includes(n))
+            return `Port ${n} already used by another project`;
+          return true;
+        },
+      });
+      const servePort = parseInt(portStr, 10);
+
+      const cronEnabled = await confirm({
+        message: "Enable cron daemon (auto-dispatches worker/reviewer)?",
+        default: false,
+      });
+
+      agentConfig = { servePort, cronEnabled };
+
+      // Optional model overrides
+      const customizeModels = await confirm({
+        message: "Customize agent models? (default: inherit from instance config)",
+        default: false,
+      });
+
+      if (customizeModels) {
+        const workerModel = await input({
+          message: "Worker model (e.g. claude-sonnet-4-20250514):",
+        });
+        if (workerModel.trim()) agentConfig.workerModel = workerModel.trim();
+
+        const reviewerModel = await input({
+          message: "Reviewer model:",
+        });
+        if (reviewerModel.trim()) agentConfig.reviewerModel = reviewerModel.trim();
+
+        const plannerModel = await input({
+          message: "Planner model:",
+        });
+        if (plannerModel.trim()) agentConfig.plannerModel = plannerModel.trim();
+      }
+
+      console.log(
+        chalk.dim(
+          `  Port: ${servePort}, Cron: ${cronEnabled ? "enabled" : "disabled"}${agentConfig.workerModel ? `, Worker: ${agentConfig.workerModel}` : ""}`
+        )
+      );
+    }
+  }
+
   // ── Build project config ────────────────────────────────────────
   const projectConfig: ProjectConfig = {
     name: projectName,
@@ -379,6 +457,7 @@ export async function addCommand(
     ports,
     mcp: sandboxFile?.mcp ?? template.mcp,
     permission: permissionSetting,
+    agentConfig,
   };
 
   // ── Save ────────────────────────────────────────────────────────
