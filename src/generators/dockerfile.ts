@@ -178,6 +178,7 @@ export function generateDockerfile(instance: ResolvedInstance): string {
   lines.push(`# Pre-create directories for volume mounts`);
   lines.push(`RUN mkdir -p /home/coder/.config/opencode \\`);
   lines.push(`    && mkdir -p /home/coder/.local/share/opencode \\`);
+
   lines.push(`    && mkdir -p /home/coder/.remote-opencode \\`);
   lines.push(`    && mkdir -p /home/coder/.git-credentials \\`);
   lines.push(`    && mkdir -p /home/coder/.ssh \\`);

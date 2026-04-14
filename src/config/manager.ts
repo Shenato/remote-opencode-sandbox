@@ -135,26 +135,30 @@ export function deleteInstance(name: string): void {
 // ─── Project Config ────────────────────────────────────────────────────────
 
 function projectConfigPath(instanceName: string, projectName: string): string {
-  return path.join(instanceDir(instanceName), "projects", `${projectName}.json`);
+  return path.join(
+    instanceDir(instanceName),
+    "projects",
+    `${projectName}.json`,
+  );
 }
 
 export function loadProjectConfig(
   instanceName: string,
-  projectName: string
+  projectName: string,
 ): ProjectConfig | null {
   return readJson<ProjectConfig>(projectConfigPath(instanceName, projectName));
 }
 
 export function saveProjectConfig(
   instanceName: string,
-  config: ProjectConfig
+  config: ProjectConfig,
 ): void {
   writeJson(projectConfigPath(instanceName, config.name), config);
 }
 
 export function deleteProjectConfig(
   instanceName: string,
-  projectName: string
+  projectName: string,
 ): void {
   const p = projectConfigPath(instanceName, projectName);
   if (fs.existsSync(p)) fs.unlinkSync(p);
@@ -176,10 +180,10 @@ export function listProjectsInInstance(instanceName: string): ProjectConfig[] {
 // ─── Project Sandbox File (.sandbox.json in repo) ──────────────────────────
 
 export function loadProjectSandboxFile(
-  projectPath: string
+  projectPath: string,
 ): ProjectSandboxFile | null {
   return readJson<ProjectSandboxFile>(
-    path.join(projectPath, PROJECT_SANDBOX_FILE)
+    path.join(projectPath, PROJECT_SANDBOX_FILE),
   );
 }
 
@@ -190,7 +194,7 @@ function instanceEnvPath(instanceName: string): string {
 }
 
 export function loadInstanceSecrets(
-  instanceName: string
+  instanceName: string,
 ): Record<string, string> {
   try {
     const raw = fs.readFileSync(instanceEnvPath(instanceName), "utf-8");
@@ -212,7 +216,7 @@ export function loadInstanceSecrets(
 
 export function saveInstanceSecrets(
   instanceName: string,
-  secrets: Record<string, string>
+  secrets: Record<string, string>,
 ): void {
   const dir = path.join(instanceDir(instanceName), "generated");
   ensureDir(dir);
@@ -225,7 +229,11 @@ export function saveInstanceSecrets(
   for (const [key, value] of Object.entries(secrets)) {
     lines.push(`${key}=${value}`);
   }
-  fs.writeFileSync(instanceEnvPath(instanceName), lines.join("\n") + "\n", "utf-8");
+  fs.writeFileSync(
+    instanceEnvPath(instanceName),
+    lines.join("\n") + "\n",
+    "utf-8",
+  );
 }
 
 // ─── Config Resolution (merge all layers) ──────────────────────────────────
@@ -266,17 +274,31 @@ function resolveAgentTeam(
     resolvedProjects[proj.name] = {
       servePort,
       daemonPort: cronEnabled ? servePort + DAEMON_PORT_OFFSET : undefined,
-      worktreePath: cronEnabled ? `${CONTAINER_WORKTREES_DIR}/${proj.name}` : undefined,
+      worktreePath: cronEnabled
+        ? `${CONTAINER_WORKTREES_DIR}/${proj.name}`
+        : undefined,
       cronEnabled,
-      workerModel: projAgent?.workerModel ?? agentTeam.workerModel ?? AGENT_DEFAULT_WORKER_MODEL,
-      reviewerModel: projAgent?.reviewerModel ?? agentTeam.reviewerModel ?? AGENT_DEFAULT_REVIEWER_MODEL,
-      plannerModel: projAgent?.plannerModel ?? agentTeam.plannerModel ?? AGENT_DEFAULT_PLANNER_MODEL,
+      workerModel:
+        projAgent?.workerModel ??
+        agentTeam.workerModel ??
+        AGENT_DEFAULT_WORKER_MODEL,
+      reviewerModel:
+        projAgent?.reviewerModel ??
+        agentTeam.reviewerModel ??
+        AGENT_DEFAULT_REVIEWER_MODEL,
+      plannerModel:
+        projAgent?.plannerModel ??
+        agentTeam.plannerModel ??
+        AGENT_DEFAULT_PLANNER_MODEL,
       workerSteps: agentTeam.workerSteps ?? AGENT_DEFAULT_WORKER_STEPS,
       reviewerSteps: agentTeam.reviewerSteps ?? AGENT_DEFAULT_REVIEWER_STEPS,
       plannerSteps: agentTeam.plannerSteps ?? AGENT_DEFAULT_PLANNER_STEPS,
-      workerIntervalMinutes: agentTeam.workerIntervalMinutes ?? AGENT_DEFAULT_WORKER_INTERVAL,
-      reviewerIntervalMinutes: agentTeam.reviewerIntervalMinutes ?? AGENT_DEFAULT_REVIEWER_INTERVAL,
-      runTimeoutSeconds: agentTeam.runTimeoutSeconds ?? AGENT_DEFAULT_RUN_TIMEOUT,
+      workerIntervalMinutes:
+        agentTeam.workerIntervalMinutes ?? AGENT_DEFAULT_WORKER_INTERVAL,
+      reviewerIntervalMinutes:
+        agentTeam.reviewerIntervalMinutes ?? AGENT_DEFAULT_REVIEWER_INTERVAL,
+      runTimeoutSeconds:
+        agentTeam.runTimeoutSeconds ?? AGENT_DEFAULT_RUN_TIMEOUT,
     };
   }
 
@@ -287,22 +309,38 @@ function resolveAgentTeam(
     for (let i = 0; i < repoEntries.length; i++) {
       const [repoName, repoAgent] = repoEntries[i]!;
       const cronEnabled = repoAgent.cronEnabled ?? false;
-      const servePort = repoAgent.servePort ?? AGENT_DEFAULT_SERVE_PORT_BASE + existingCount + i;
+      const servePort =
+        repoAgent.servePort ??
+        AGENT_DEFAULT_SERVE_PORT_BASE + existingCount + i;
 
       resolvedProjects[repoName] = {
         servePort,
         daemonPort: cronEnabled ? servePort + DAEMON_PORT_OFFSET : undefined,
-        worktreePath: cronEnabled ? `${CONTAINER_WORKTREES_DIR}/${repoName}` : undefined,
+        worktreePath: cronEnabled
+          ? `${CONTAINER_WORKTREES_DIR}/${repoName}`
+          : undefined,
         cronEnabled,
-        workerModel: repoAgent.workerModel ?? agentTeam.workerModel ?? AGENT_DEFAULT_WORKER_MODEL,
-        reviewerModel: repoAgent.reviewerModel ?? agentTeam.reviewerModel ?? AGENT_DEFAULT_REVIEWER_MODEL,
-        plannerModel: repoAgent.plannerModel ?? agentTeam.plannerModel ?? AGENT_DEFAULT_PLANNER_MODEL,
+        workerModel:
+          repoAgent.workerModel ??
+          agentTeam.workerModel ??
+          AGENT_DEFAULT_WORKER_MODEL,
+        reviewerModel:
+          repoAgent.reviewerModel ??
+          agentTeam.reviewerModel ??
+          AGENT_DEFAULT_REVIEWER_MODEL,
+        plannerModel:
+          repoAgent.plannerModel ??
+          agentTeam.plannerModel ??
+          AGENT_DEFAULT_PLANNER_MODEL,
         workerSteps: agentTeam.workerSteps ?? AGENT_DEFAULT_WORKER_STEPS,
         reviewerSteps: agentTeam.reviewerSteps ?? AGENT_DEFAULT_REVIEWER_STEPS,
         plannerSteps: agentTeam.plannerSteps ?? AGENT_DEFAULT_PLANNER_STEPS,
-        workerIntervalMinutes: agentTeam.workerIntervalMinutes ?? AGENT_DEFAULT_WORKER_INTERVAL,
-        reviewerIntervalMinutes: agentTeam.reviewerIntervalMinutes ?? AGENT_DEFAULT_REVIEWER_INTERVAL,
-        runTimeoutSeconds: agentTeam.runTimeoutSeconds ?? AGENT_DEFAULT_RUN_TIMEOUT,
+        workerIntervalMinutes:
+          agentTeam.workerIntervalMinutes ?? AGENT_DEFAULT_WORKER_INTERVAL,
+        reviewerIntervalMinutes:
+          agentTeam.reviewerIntervalMinutes ?? AGENT_DEFAULT_REVIEWER_INTERVAL,
+        runTimeoutSeconds:
+          agentTeam.runTimeoutSeconds ?? AGENT_DEFAULT_RUN_TIMEOUT,
       };
     }
   }
@@ -315,7 +353,9 @@ function resolveAgentTeam(
     toolkitSymlinkPath,
     discord: {
       enabled: agentTeam.discord?.enabled ?? true,
-      channelSuffix: agentTeam.discord?.channelSuffix ?? AGENT_DEFAULT_DISCORD_CHANNEL_SUFFIX,
+      channelSuffix:
+        agentTeam.discord?.channelSuffix ??
+        AGENT_DEFAULT_DISCORD_CHANNEL_SUFFIX,
     },
     projects: resolvedProjects,
   };
@@ -405,7 +445,8 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     baseImage: instanceConfig.docker?.baseImage ?? baseDocker.baseImage,
     installChrome: instanceConfig.docker?.installChrome ?? needsChrome,
     installBun: instanceConfig.docker?.installBun ?? baseDocker.installBun,
-    installSupabaseCli: instanceConfig.docker?.installSupabaseCli ?? needsSupabaseCli,
+    installSupabaseCli:
+      instanceConfig.docker?.installSupabaseCli ?? needsSupabaseCli,
     extraPackages: Array.from(allExtraPackages),
     installSteps: allInstallSteps.length > 0 ? allInstallSteps : undefined,
   };
@@ -423,11 +464,13 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
 
   // Merge env overrides
   const envOverrides: Record<string, string> = {};
-  if (instanceConfig.envOverrides) Object.assign(envOverrides, instanceConfig.envOverrides);
+  if (instanceConfig.envOverrides)
+    Object.assign(envOverrides, instanceConfig.envOverrides);
   for (const proj of projects) {
     Object.assign(envOverrides, proj.envOverrides);
     const sandboxFile = loadProjectSandboxFile(proj.hostPath);
-    if (sandboxFile?.env?.override) Object.assign(envOverrides, sandboxFile.env.override);
+    if (sandboxFile?.env?.override)
+      Object.assign(envOverrides, sandboxFile.env.override);
   }
 
   // Collect secrets
@@ -460,7 +503,10 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     // Template services (with workdir set to this project)
     if (template?.services.container) {
       for (const svc of template.services.container) {
-        containerServices.push({ ...svc, workdir: svc.workdir ?? workspacePath });
+        containerServices.push({
+          ...svc,
+          workdir: svc.workdir ?? workspacePath,
+        });
       }
     }
     if (template?.services.host) {
@@ -472,7 +518,9 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     // Project config services override/add to template
     if (proj.services.container) {
       for (const svc of proj.services.container) {
-        const existing = containerServices.findIndex((s) => s.name === svc.name);
+        const existing = containerServices.findIndex(
+          (s) => s.name === svc.name,
+        );
         const resolved = { ...svc, workdir: svc.workdir ?? workspacePath };
         if (existing >= 0) {
           containerServices[existing] = resolved;
@@ -496,7 +544,9 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     // .sandbox.json services override/add
     if (sandboxFile?.services?.container) {
       for (const svc of sandboxFile.services.container) {
-        const existing = containerServices.findIndex((s) => s.name === svc.name);
+        const existing = containerServices.findIndex(
+          (s) => s.name === svc.name,
+        );
         const resolved = { ...svc, workdir: svc.workdir ?? workspacePath };
         if (existing >= 0) {
           containerServices[existing] = resolved;
@@ -522,7 +572,7 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
       svc.name = `${proj.name}:${svc.name}`;
       if (svc.dependsOn) {
         svc.dependsOn = svc.dependsOn.map((d) =>
-          d.includes(":") ? d : `${proj.name}:${d}`
+          d.includes(":") ? d : `${proj.name}:${d}`,
         );
       }
     }
@@ -530,7 +580,7 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
       svc.name = `${proj.name}:${svc.name}`;
       if (svc.dependsOn) {
         svc.dependsOn = svc.dependsOn.map((d) =>
-          d.includes(":") ? d : `${proj.name}:${d}`
+          d.includes(":") ? d : `${proj.name}:${d}`,
         );
       }
     }
@@ -589,10 +639,7 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
   // Resolve SSH config (expand ~ to home dir, validate key exists)
   let ssh: SshConfig | undefined;
   if (globalConfig.ssh?.keyPath) {
-    const expandedPath = globalConfig.ssh.keyPath.replace(
-      /^~/,
-      os.homedir()
-    );
+    const expandedPath = globalConfig.ssh.keyPath.replace(/^~/, os.homedir());
     if (fs.existsSync(expandedPath)) {
       ssh = {
         keyPath: expandedPath,
@@ -711,7 +758,10 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
           workdir: worktreePath,
           type: "oneshot",
           restart: "never",
-          dependsOn: [`${projectName}:worktree-create`, "instance:toolkit-setup"],
+          dependsOn: [
+            `${projectName}:worktree-create`,
+            "instance:toolkit-setup",
+          ],
         };
         allContainerServices.push(worktreeInitSvc);
 

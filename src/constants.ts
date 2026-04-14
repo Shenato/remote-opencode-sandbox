@@ -5,7 +5,7 @@ import os from "node:os";
 export const CONFIG_DIR = path.join(
   os.homedir(),
   ".config",
-  "remote-opencode-sandbox"
+  "remote-opencode-sandbox",
 );
 
 /** Subdirectories */
@@ -40,9 +40,9 @@ export const CONTAINER_WORKTREES_DIR = "/workspace/.worktrees";
 export const DAEMON_PORT_OFFSET = 100;
 
 /** Agent team defaults */
-export const AGENT_DEFAULT_WORKER_MODEL = "claude-sonnet-4-20250514";
-export const AGENT_DEFAULT_REVIEWER_MODEL = "claude-sonnet-4-20250514";
-export const AGENT_DEFAULT_PLANNER_MODEL = "claude-haiku-4-20250414";
+export const AGENT_DEFAULT_WORKER_MODEL = "github-copilot/claude-opus-4.6";
+export const AGENT_DEFAULT_REVIEWER_MODEL = "github-copilot/claude-opus-4.6";
+export const AGENT_DEFAULT_PLANNER_MODEL = "github-copilot/claude-opus-4.6";
 export const AGENT_DEFAULT_WORKER_STEPS = 50;
 export const AGENT_DEFAULT_REVIEWER_STEPS = 30;
 export const AGENT_DEFAULT_PLANNER_STEPS = 20;

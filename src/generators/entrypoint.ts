@@ -35,7 +35,9 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(`#`);
   lines.push(`# Process supervisor for ${containerServices.length} services:`);
   for (const svc of containerServices) {
-    const deps = svc.dependsOn?.length ? ` (depends: ${svc.dependsOn.join(", ")})` : "";
+    const deps = svc.dependsOn?.length
+      ? ` (depends: ${svc.dependsOn.join(", ")})`
+      : "";
     lines.push(`#   [${svc.type}] ${svc.name}${deps}`);
   }
   lines.push(`set -euo pipefail`);
@@ -88,8 +90,12 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   // ── Preflight checks ────────────────────────────────────────────
   lines.push(`# ── Preflight checks ──`);
   for (const proj of instance.projects) {
-    lines.push(`if [ -d "${proj.workspacePath}/node_modules" ] && ! [ -w "${proj.workspacePath}/node_modules" ]; then`);
-    lines.push(`  log "preflight" "ERROR: ${proj.workspacePath}/node_modules is not writable by $(whoami). Fix host permissions or remove the volume."`);
+    lines.push(
+      `if [ -d "${proj.workspacePath}/node_modules" ] && ! [ -w "${proj.workspacePath}/node_modules" ]; then`,
+    );
+    lines.push(
+      `  log "preflight" "ERROR: ${proj.workspacePath}/node_modules is not writable by $(whoami). Fix host permissions or remove the volume."`,
+    );
     lines.push(`  exit 1`);
     lines.push(`fi`);
   }
@@ -102,7 +108,9 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
     lines.push(`  log "preflight" "Setting up SSH key for git authentication"`);
     lines.push(``);
     lines.push(`  # Generate known_hosts for GitHub (and other common hosts)`);
-    lines.push(`  ssh-keyscan -t ed25519,rsa github.com >> /home/coder/.ssh/known_hosts 2>/dev/null || true`);
+    lines.push(
+      `  ssh-keyscan -t ed25519,rsa github.com >> /home/coder/.ssh/known_hosts 2>/dev/null || true`,
+    );
     lines.push(`  chmod 644 /home/coder/.ssh/known_hosts`);
     lines.push(``);
     lines.push(`  # Create SSH config pointing to the mounted key`);
@@ -118,7 +126,9 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
     lines.push(``);
     lines.push(`  log "preflight" "SSH key configured successfully"`);
     lines.push(`else`);
-    lines.push(`  log "preflight" "WARNING: SSH key mount expected but /home/coder/.ssh/id_key not found"`);
+    lines.push(
+      `  log "preflight" "WARNING: SSH key mount expected but /home/coder/.ssh/id_key not found"`,
+    );
     lines.push(`fi`);
     lines.push(``);
   }
@@ -130,15 +140,25 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
     const targetDir = at.toolkitPath;
     const symlinkPath = at.toolkitSymlinkPath;
 
-    lines.push(`# ── Agent toolkit (${repoName}) — first-class infrastructure ──`);
+    lines.push(
+      `# ── Agent toolkit (${repoName}) — first-class infrastructure ──`,
+    );
     lines.push(`if [ -d "${targetDir}/.git" ]; then`);
     lines.push(`  log "toolkit" "Pulling ${repoName}..."`);
-    lines.push(`  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Pull failed for ${repoName} (continuing)"`);
-    lines.push(`elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`);
+    lines.push(
+      `  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Pull failed for ${repoName} (continuing)"`,
+    );
+    lines.push(
+      `elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`,
+    );
     lines.push(`  log "toolkit" "Cloning ${repoName}..."`);
-    lines.push(`  (GIT_TERMINAL_PROMPT=0 git clone "${at.toolkitRepo}" "${targetDir}" 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Clone failed for ${repoName} (continuing)"`);
+    lines.push(
+      `  (GIT_TERMINAL_PROMPT=0 git clone "${at.toolkitRepo}" "${targetDir}" 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Clone failed for ${repoName} (continuing)"`,
+    );
     lines.push(`else`);
-    lines.push(`  log "toolkit" "${repoName} exists but is not a git repo — skipping clone"`);
+    lines.push(
+      `  log "toolkit" "${repoName} exists but is not a git repo — skipping clone"`,
+    );
     lines.push(`fi`);
     lines.push(``);
     lines.push(`# Symlink toolkit to workspace root for discoverability`);
@@ -151,19 +171,33 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
 
   // ── Clone/pull extra repositories ─────────────────────────────────
   if (instance.extraRepos.length > 0) {
-    lines.push(`# ── Extra repositories (clone if missing, pull if present) ──`);
+    lines.push(
+      `# ── Extra repositories (clone if missing, pull if present) ──`,
+    );
     for (const repoUrl of instance.extraRepos) {
       // Extract repo name from URL: https://github.com/org/repo.git → repo
-      const repoName = repoUrl.replace(/\.git$/, "").split("/").pop() ?? "unknown";
+      const repoName =
+        repoUrl
+          .replace(/\.git$/, "")
+          .split("/")
+          .pop() ?? "unknown";
       const targetDir = `/workspace/${repoName}`;
       lines.push(`if [ -d "${targetDir}/.git" ]; then`);
       lines.push(`  log "repos" "Pulling ${repoName}..."`);
-      lines.push(`  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[repos:${repoName}] /") || log "repos" "Pull failed for ${repoName} (continuing)"`);
-      lines.push(`elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`);
+      lines.push(
+        `  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[repos:${repoName}] /") || log "repos" "Pull failed for ${repoName} (continuing)"`,
+      );
+      lines.push(
+        `elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`,
+      );
       lines.push(`  log "repos" "Cloning ${repoName}..."`);
-      lines.push(`  (GIT_TERMINAL_PROMPT=0 git clone "${repoUrl}" "${targetDir}" 2>&1 | sed "s/^/[repos:${repoName}] /") || log "repos" "Clone failed for ${repoName} (continuing)"`);
+      lines.push(
+        `  (GIT_TERMINAL_PROMPT=0 git clone "${repoUrl}" "${targetDir}" 2>&1 | sed "s/^/[repos:${repoName}] /") || log "repos" "Clone failed for ${repoName} (continuing)"`,
+      );
       lines.push(`else`);
-      lines.push(`  log "repos" "${repoName} exists but is not a git repo — skipping"`);
+      lines.push(
+        `  log "repos" "${repoName} exists but is not a git repo — skipping"`,
+      );
       lines.push(`fi`);
     }
     lines.push(``);
@@ -174,7 +208,9 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(`run_oneshot() {`);
   lines.push(`  local name="$1" cmd="$2" workdir="$3"`);
   lines.push(`  log "$name" "Running: $cmd (in $workdir)"`);
-  lines.push(`  if (cd "$workdir" && eval "$cmd") 2>&1 | sed "s/^/[$name] /"; then`);
+  lines.push(
+    `  if (cd "$workdir" && eval "$cmd") 2>&1 | sed "s/^/[$name] /"; then`,
+  );
   lines.push(`    log "$name" "Completed successfully"`);
   lines.push(`  else`);
   lines.push(`    log "$name" "FAILED (exit $?)"`);
@@ -201,7 +237,9 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(`restart_daemon() {`);
   lines.push(`  local name="$1" cmd="$2" workdir="$3" restart_policy="$4"`);
   lines.push(`  if [ "$restart_policy" = "never" ]; then`);
-  lines.push(`    log "$name" "Exited. Restart policy is 'never', not restarting."`);
+  lines.push(
+    `    log "$name" "Exited. Restart policy is 'never', not restarting."`,
+  );
   lines.push(`    return`);
   lines.push(`  fi`);
   lines.push(`  local now=$(date +%s)`);
@@ -215,7 +253,9 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(`  RESTART_COUNTS[$name]=$count`);
   lines.push(`  LAST_RESTART_TIMES[$name]=$now`);
   lines.push(`  if (( count >= MAX_RAPID_RESTARTS )); then`);
-  lines.push(`    log "$name" "Crashed $count times in ${RAPID_WINDOW}s — backing off ${BACKOFF_DELAY}s"`);
+  lines.push(
+    `    log "$name" "Crashed $count times in ${RAPID_WINDOW}s — backing off ${BACKOFF_DELAY}s"`,
+  );
   lines.push(`    sleep "$BACKOFF_DELAY"`);
   lines.push(`    RESTART_COUNTS[$name]=0`);
   lines.push(`  else`);
@@ -225,7 +265,28 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(`}`);
   lines.push(``);
 
-  // ── Run oneshot services (in dependency order) ───────────────────
+  // ── Wait for port to become available ─────────────────────────────
+  lines.push(`# ── Wait for port ──`);
+  lines.push(`wait_for_port() {`);
+  lines.push(`  local port="$1" name="$2" max_wait="\${3:-60}"`);
+  lines.push(`  local waited=0`);
+  lines.push(`  log "supervisor" "Waiting for $name on port $port..."`);
+  lines.push(
+    `  while ! curl -so /dev/null --connect-timeout 2 "http://localhost:$port/" 2>/dev/null; do`,
+  );
+  lines.push(`    if (( waited >= max_wait )); then`);
+  lines.push(
+    `      log "supervisor" "WARNING: $name (port $port) not ready after \${max_wait}s"`,
+  );
+  lines.push(`      return 1`);
+  lines.push(`    fi`);
+  lines.push(`    sleep 2`);
+  lines.push(`    waited=$((waited + 2))`);
+  lines.push(`  done`);
+  lines.push(`  log "supervisor" "$name (port $port) ready (\${waited}s)"`);
+  lines.push(`}`);
+  lines.push(``);
+
   if (oneshots.length > 0) {
     lines.push(`# ── Oneshot services ──`);
     const sorted = topologicalSort(oneshots);
@@ -233,25 +294,37 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
       const workdir = svc.workdir ?? "/workspace";
 
       // For "bun install" / "npm install" oneshots, skip if deps are up to date
-      const isInstallCmd = /\b(bun|npm|yarn|pnpm)\s+install\b/.test(svc.command);
+      const isInstallCmd = /\b(bun|npm|yarn|pnpm)\s+install\b/.test(
+        svc.command,
+      );
       if (isInstallCmd) {
-        lines.push(`# Conditional install — skip if node_modules looks up to date`);
-        lines.push(`if [ ! -d "${workdir}/node_modules/.cache" ] || [ ! -f "${workdir}/node_modules/.package-lock.json" ]; then`);
+        lines.push(
+          `# Conditional install — skip if node_modules looks up to date`,
+        );
+        lines.push(
+          `if [ ! -d "${workdir}/node_modules/.cache" ] || [ ! -f "${workdir}/node_modules/.package-lock.json" ]; then`,
+        );
       }
 
       if (svc.env && Object.keys(svc.env).length > 0) {
         const envExports = Object.entries(svc.env)
           .map(([k, v]) => `export ${k}="${escapeShell(v)}"`)
           .join("; ");
-        lines.push(`  (${envExports}; run_oneshot "${svc.name}" "${escapeShell(svc.command)}" "${workdir}")`);
+        lines.push(
+          `  (${envExports}; run_oneshot "${svc.name}" "${escapeShell(svc.command)}" "${workdir}")`,
+        );
       } else {
         const indent = isInstallCmd ? "  " : "";
-        lines.push(`${indent}run_oneshot "${svc.name}" "${escapeShell(svc.command)}" "${workdir}"`);
+        lines.push(
+          `${indent}run_oneshot "${svc.name}" "${escapeShell(svc.command)}" "${workdir}"`,
+        );
       }
 
       if (isInstallCmd) {
         lines.push(`else`);
-        lines.push(`  log "${svc.name}" "node_modules looks up to date, skipping install"`);
+        lines.push(
+          `  log "${svc.name}" "node_modules looks up to date, skipping install"`,
+        );
         lines.push(`fi`);
       }
     }
@@ -270,9 +343,13 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
         const envPrefix = Object.entries(svc.env)
           .map(([k, v]) => `${k}=\\\"${escapeShell(v)}\\\"`)
           .join(" ");
-        lines.push(`start_daemon "${svc.name}" "${envPrefix} ${escapeShell(svc.command)}" "${workdir}"`);
+        lines.push(
+          `start_daemon "${svc.name}" "${envPrefix} ${escapeShell(svc.command)}" "${workdir}"`,
+        );
       } else {
-        lines.push(`start_daemon "${svc.name}" "${escapeShell(svc.command)}" "${workdir}"`);
+        lines.push(
+          `start_daemon "${svc.name}" "${escapeShell(svc.command)}" "${workdir}"`,
+        );
       }
       // Give services time to bind ports before starting the next one
       lines.push(`sleep 2`);
@@ -280,9 +357,24 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
     lines.push(``);
   }
 
+  // ── Wait for opencode serve instances before starting Discord bridge ──
+  if (instance.agentTeam) {
+    lines.push(`# ── Wait for opencode serve instances ──`);
+    for (const [projName, projAgent] of Object.entries(
+      instance.agentTeam.projects,
+    )) {
+      lines.push(
+        `wait_for_port ${projAgent.servePort} "${projName}:opencode-serve" 60 || true`,
+      );
+    }
+    lines.push(``);
+  }
+
   // ── Always start remote-opencode last ────────────────────────────
   lines.push(`# ── remote-opencode (Discord bridge — always last) ──`);
-  lines.push(`start_daemon "remote-opencode" "remote-opencode start" "/workspace"`);
+  lines.push(
+    `start_daemon "remote-opencode" "remote-opencode start" "/workspace"`,
+  );
   lines.push(``);
 
   // ── Status output ────────────────────────────────────────────────
@@ -292,7 +384,9 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(`for name in "\${!DAEMON_PIDS[@]}"; do`);
   lines.push(`  log "supervisor" "  $name (PID \${DAEMON_PIDS[$name]})"`);
   lines.push(`done`);
-  lines.push(`log "supervisor" "Watchdog monitoring every \${WATCHDOG_INTERVAL}s"`);
+  lines.push(
+    `log "supervisor" "Watchdog monitoring every \${WATCHDOG_INTERVAL}s"`,
+  );
   lines.push(``);
 
   // ── Watchdog loop ────────────────────────────────────────────────
@@ -308,7 +402,9 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
       const envPrefix = Object.entries(svc.env)
         .map(([k, v]) => `${k}=\\\"${escapeShell(v)}\\\"`)
         .join(" ");
-      lines.push(`DAEMON_CMDS["${svc.name}"]="${envPrefix} ${escapeShell(svc.command)}"`);
+      lines.push(
+        `DAEMON_CMDS["${svc.name}"]="${envPrefix} ${escapeShell(svc.command)}"`,
+      );
     } else {
       lines.push(`DAEMON_CMDS["${svc.name}"]="${escapeShell(svc.command)}"`);
     }
@@ -327,8 +423,12 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(``);
   lines.push(`  for name in "\${!DAEMON_PIDS[@]}"; do`);
   lines.push(`    if ! kill -0 "\${DAEMON_PIDS[$name]}" 2>/dev/null; then`);
-  lines.push(`      log "watchdog" "$name exited (was PID \${DAEMON_PIDS[$name]})"`);
-  lines.push(`      restart_daemon "$name" "\${DAEMON_CMDS[$name]}" "\${DAEMON_WORKDIRS[$name]}" "\${DAEMON_RESTART[$name]}"`);
+  lines.push(
+    `      log "watchdog" "$name exited (was PID \${DAEMON_PIDS[$name]})"`,
+  );
+  lines.push(
+    `      restart_daemon "$name" "\${DAEMON_CMDS[$name]}" "\${DAEMON_WORKDIRS[$name]}" "\${DAEMON_RESTART[$name]}"`,
+  );
   lines.push(`    fi`);
   lines.push(`  done`);
   lines.push(`done`);
