@@ -2,7 +2,8 @@
 
 Your own self-hosted AI coding agent — like [GitHub Copilot coding agent](https://github.com/features/copilot), [Claude Code](https://claude.ai), or [Devin](https://devin.ai), but running on your own machine, fully under your control.
 
-This tool sets up a secure Docker sandbox for [OpenCode](https://opencode.ai) (an open-source AI coding agent) and connects it to Discord via [remote-opencode](https://github.com/Shenato/remote-opencode), so you can manage your coding sessions from anywhere — your phone, another computer, or any device with Discord.
+This tool sets up a secure Docker sandbox for [OpenCode](https://opencode.ai) (an open-source AI coding agent) and connects it to Discord via [remote-opencode](https://github.com/bevibing/remote-opencode), so you can manage your coding sessions from anywhere — your phone, another computer, or any device with Discord.
+This tool sets up a secure Docker sandbox for [OpenCode](https://opencode.ai) (an open-source AI coding agent) and connects it to Discord via , so you can manage your coding sessions from anywhere — your phone, another computer, or any device with Discord.
 
 ## What problem does this solve?
 
