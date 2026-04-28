@@ -40,6 +40,37 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
   lines.push(`needing to probe the system. Read it carefully.`);
   lines.push(``);
 
+  // ── Critical Rules ─────────────────────────────────────────────────────
+  lines.push(`## Critical Rules`);
+  lines.push(``);
+  lines.push(
+    `**ALWAYS commit and push after making changes to any project.** This container`,
+  );
+  lines.push(
+    `is ephemeral — local filesystem changes are lost on restart. Remote-only projects`,
+  );
+  lines.push(
+    `are re-cloned from git on every container start, and host-mounted projects sync`,
+  );
+  lines.push(
+    `from the host bind mount. If you edit code and don't commit+push, your work will`,
+  );
+  lines.push(`be lost.`);
+  lines.push(``);
+  lines.push(`After every meaningful change:`);
+  lines.push(`\`\`\`bash`);
+  lines.push(`cd /workspace/<project>`);
+  lines.push(`git add -A && git commit -m "<describe change>" && git push`);
+  lines.push(`\`\`\``);
+  lines.push(``);
+  lines.push(
+    `This applies to ALL projects, config files, kanban boards, and any other`,
+  );
+  lines.push(
+    `tracked files. Never leave uncommitted work — the next restart will wipe it.`,
+  );
+  lines.push(``);
+
   // ── Base System ─────────────────────────────────────────────────────────
   lines.push(`## Base System`);
   lines.push(``);
