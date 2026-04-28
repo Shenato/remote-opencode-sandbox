@@ -54,6 +54,13 @@ export interface InstanceConfig {
   extraRepos?: string[];
   /** Multi-agent team configuration (worker/reviewer/planner on kanban boards) */
   agentTeam?: AgentTeamConfig;
+  /**
+   * Local path to a remote-opencode source directory.
+   * When set, `sandbox build` will `npm pack` this directory and install
+   * the resulting tarball in the Docker image instead of `remote-opencode@latest` from npm.
+   * Useful for testing local forks before submitting PRs.
+   */
+  localRemoteOpencodePath?: string;
 }
 
 /** Docker image configuration */
@@ -97,8 +104,19 @@ export interface DockerInstallStep {
 export interface ProjectConfig {
   /** Project display name (derived from directory name) */
   name: string;
-  /** Absolute path to the project on the host */
-  hostPath: string;
+  /**
+   * Absolute path to the project on the host.
+   * Required for host-mounted projects (bind mount into container).
+   * Omit for remote-only projects that are cloned inside the container.
+   */
+  hostPath?: string;
+  /**
+   * Git URL (SSH or HTTPS) to clone the project from.
+   * Required for remote-only projects (no hostPath).
+   * When set, the project is cloned into /workspace/<name> at container startup
+   * and pulled on subsequent restarts (like extraRepos, but with full project treatment).
+   */
+  gitUrl?: string;
   /** Which instance this project belongs to */
   instance: string;
   /** Template used (e.g., "web-supabase", "node-basic") */
@@ -374,11 +392,18 @@ export interface ResolvedInstance {
   extraRepos: string[];
   /** Resolved agent team config (undefined when agent team disabled) */
   agentTeam?: ResolvedAgentTeamConfig;
+  /** Local remote-opencode tarball filename (set when localRemoteOpencodePath is configured) */
+  localRemoteOpencodeTarball?: string;
 }
 
 export interface ResolvedProject {
   name: string;
-  hostPath: string;
+  /** Host path for bind-mounted projects. Undefined for remote-only projects. */
+  hostPath?: string;
+  /** Git URL for remote-only projects. Undefined for host-mounted projects. */
+  gitUrl?: string;
+  /** Whether this project is remote-only (cloned inside container, not bind-mounted) */
+  isRemote: boolean;
   workspacePath: string; // /workspace/<name>
   services: ServiceManifest;
   envOverrides: Record<string, string>;

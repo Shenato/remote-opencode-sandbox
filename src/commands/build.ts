@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 import {
   resolveInstance,
   instanceGeneratedDir,
@@ -44,6 +45,41 @@ export function buildInstance(instanceName: string): {
 
   // Ensure generated directory exists
   fs.mkdirSync(genDir, { recursive: true });
+
+  // If a local remote-opencode fork is configured, npm pack it into the build context
+  const instanceConfigRaw = JSON.parse(
+    fs.readFileSync(
+      path.join(path.dirname(genDir), "instance.json"),
+      "utf-8"
+    )
+  );
+  if (instanceConfigRaw.localRemoteOpencodePath) {
+    const localPath = path.resolve(instanceConfigRaw.localRemoteOpencodePath);
+    if (!fs.existsSync(path.join(localPath, "package.json"))) {
+      return {
+        success: false,
+        generatedDir: genDir,
+        error: `localRemoteOpencodePath "${localPath}" does not contain a package.json`,
+      };
+    }
+    try {
+      // Build first (compiles TypeScript to dist/)
+      console.log(`  Building local remote-opencode...`);
+      execSync("npm run build", { cwd: localPath, stdio: "pipe" });
+      const tarballName = execSync("npm pack --pack-destination " + JSON.stringify(genDir), {
+        cwd: localPath,
+        encoding: "utf-8",
+      }).trim().split("\n").pop()!;
+      resolved.localRemoteOpencodeTarball = tarballName;
+      console.log(`  Packed local remote-opencode: ${tarballName}`);
+    } catch (err) {
+      return {
+        success: false,
+        generatedDir: genDir,
+        error: `Failed to npm pack local remote-opencode at "${localPath}": ${err}`,
+      };
+    }
+  }
 
   // Generate all files
   const dockerfile = generateDockerfile(resolved);

@@ -69,7 +69,6 @@ export function generateGitCredentials(
   for (const proj of projects) {
     const pat = proj.githubPat === "default" ? defaultPat : proj.githubPat;
     const workspacePath = `${CONTAINER_WORKSPACE}/${proj.name}/`;
-
     if (pat) {
       // Project has a PAT — use HTTPS credential store
       // Write credential file

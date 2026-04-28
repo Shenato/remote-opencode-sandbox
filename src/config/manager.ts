@@ -193,7 +193,42 @@ function instanceEnvPath(instanceName: string): string {
   return path.join(instanceDir(instanceName), "generated", ".env");
 }
 
+/**
+ * Path to the user-managed secrets.json file.
+ * This file is NOT auto-generated — the user creates and edits it directly.
+ * It stores secret values (API keys, tokens) separate from config.
+ * Format: { "SECRET_NAME": "secret_value", ... }
+ */
+function instanceSecretsJsonPath(instanceName: string): string {
+  return path.join(instanceDir(instanceName), "secrets.json");
+}
+
+export function loadSecretsJson(
+  instanceName: string,
+): Record<string, string> {
+  return readJson<Record<string, string>>(instanceSecretsJsonPath(instanceName)) ?? {};
+}
+
+export function saveSecretsJson(
+  instanceName: string,
+  secrets: Record<string, string>,
+): void {
+  writeJson(instanceSecretsJsonPath(instanceName), secrets);
+}
+
 export function loadInstanceSecrets(
+  instanceName: string,
+): Record<string, string> {
+  // Merge: secrets.json (user-managed) takes precedence over existing generated .env
+  const fromEnv = loadGeneratedEnv(instanceName);
+  const fromJson = loadSecretsJson(instanceName);
+  return { ...fromEnv, ...fromJson };
+}
+
+/**
+ * Load secrets from the generated .env file (legacy / auto-generated values).
+ */
+function loadGeneratedEnv(
   instanceName: string,
 ): Record<string, string> {
   try {
@@ -385,10 +420,13 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
   // Merge extra packages from all projects and instance
   const allExtraPackages = new Set<string>(baseDocker.extraPackages);
   for (const proj of projects) {
-    const sandboxFile = loadProjectSandboxFile(proj.hostPath);
-    if (sandboxFile?.docker?.extraPackages) {
-      for (const pkg of sandboxFile.docker.extraPackages) {
-        allExtraPackages.add(pkg);
+    // Only load .sandbox.json for host-mounted projects
+    if (proj.hostPath) {
+      const sandboxFile = loadProjectSandboxFile(proj.hostPath);
+      if (sandboxFile?.docker?.extraPackages) {
+        for (const pkg of sandboxFile.docker.extraPackages) {
+          allExtraPackages.add(pkg);
+        }
       }
     }
   }
@@ -414,10 +452,13 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
         installStepsByName.set(step.name, step);
       }
     }
-    const sandboxFile = loadProjectSandboxFile(proj.hostPath);
-    if (sandboxFile?.docker?.installSteps) {
-      for (const step of sandboxFile.docker.installSteps) {
-        installStepsByName.set(step.name, step);
+    // Only load .sandbox.json for host-mounted projects
+    if (proj.hostPath) {
+      const sandboxFile = loadProjectSandboxFile(proj.hostPath);
+      if (sandboxFile?.docker?.installSteps) {
+        for (const step of sandboxFile.docker.installSteps) {
+          installStepsByName.set(step.name, step);
+        }
       }
     }
   }
@@ -457,8 +498,10 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     const template = loadBuiltinTemplate(proj.template);
     if (template?.mcp) Object.assign(mcp, template.mcp);
     if (proj.mcp) Object.assign(mcp, proj.mcp);
-    const sandboxFile = loadProjectSandboxFile(proj.hostPath);
-    if (sandboxFile?.mcp) Object.assign(mcp, sandboxFile.mcp);
+    if (proj.hostPath) {
+      const sandboxFile = loadProjectSandboxFile(proj.hostPath);
+      if (sandboxFile?.mcp) Object.assign(mcp, sandboxFile.mcp);
+    }
   }
   if (instanceConfig.mcp) Object.assign(mcp, instanceConfig.mcp);
 
@@ -468,9 +511,11 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     Object.assign(envOverrides, instanceConfig.envOverrides);
   for (const proj of projects) {
     Object.assign(envOverrides, proj.envOverrides);
-    const sandboxFile = loadProjectSandboxFile(proj.hostPath);
-    if (sandboxFile?.env?.override)
-      Object.assign(envOverrides, sandboxFile.env.override);
+    if (proj.hostPath) {
+      const sandboxFile = loadProjectSandboxFile(proj.hostPath);
+      if (sandboxFile?.env?.override)
+        Object.assign(envOverrides, sandboxFile.env.override);
+    }
   }
 
   // Collect secrets
@@ -492,10 +537,13 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
 
   for (const proj of projects) {
     const workspacePath = `${CONTAINER_WORKSPACE}/${proj.name}`;
+    const isRemote = !proj.hostPath;
 
     // Merge services from template + project config + .sandbox.json
     const template = loadBuiltinTemplate(proj.template);
-    const sandboxFile = loadProjectSandboxFile(proj.hostPath);
+    const sandboxFile = proj.hostPath
+      ? loadProjectSandboxFile(proj.hostPath)
+      : null;
 
     const containerServices: ContainerService[] = [];
     const hostServices: HostService[] = [];
@@ -509,9 +557,10 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
         });
       }
     }
-    if (template?.services.host) {
+    // Host services only apply to host-mounted projects
+    if (!isRemote && template?.services.host) {
       for (const svc of template.services.host) {
-        hostServices.push({ ...svc, workdir: svc.workdir ?? proj.hostPath });
+        hostServices.push({ ...svc, workdir: svc.workdir ?? proj.hostPath! });
       }
     }
 
@@ -529,10 +578,11 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
         }
       }
     }
-    if (proj.services.host) {
+    // Host services from project config only for host-mounted projects
+    if (!isRemote && proj.services.host) {
       for (const svc of proj.services.host) {
         const existing = hostServices.findIndex((s) => s.name === svc.name);
-        const resolved = { ...svc, workdir: svc.workdir ?? proj.hostPath };
+        const resolved = { ...svc, workdir: svc.workdir ?? proj.hostPath! };
         if (existing >= 0) {
           hostServices[existing] = resolved;
         } else {
@@ -541,7 +591,7 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
       }
     }
 
-    // .sandbox.json services override/add
+    // .sandbox.json services override/add (only for host-mounted projects)
     if (sandboxFile?.services?.container) {
       for (const svc of sandboxFile.services.container) {
         const existing = containerServices.findIndex(
@@ -555,10 +605,10 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
         }
       }
     }
-    if (sandboxFile?.services?.host) {
+    if (!isRemote && sandboxFile?.services?.host) {
       for (const svc of sandboxFile.services.host) {
         const existing = hostServices.findIndex((s) => s.name === svc.name);
-        const resolved = { ...svc, workdir: svc.workdir ?? proj.hostPath };
+        const resolved = { ...svc, workdir: svc.workdir ?? proj.hostPath! };
         if (existing >= 0) {
           hostServices[existing] = resolved;
         } else {
@@ -591,6 +641,8 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     resolvedProjects.push({
       name: proj.name,
       hostPath: proj.hostPath,
+      gitUrl: proj.gitUrl,
+      isRemote: !proj.hostPath,
       workspacePath,
       services: { container: containerServices, host: hostServices },
       envOverrides: {
@@ -616,9 +668,11 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
   const ports = new Set<string>();
   for (const proj of projects) {
     for (const p of proj.ports) ports.add(p);
-    const sandboxFile = loadProjectSandboxFile(proj.hostPath);
-    if (sandboxFile?.ports) {
-      for (const p of sandboxFile.ports) ports.add(p);
+    if (proj.hostPath) {
+      const sandboxFile = loadProjectSandboxFile(proj.hostPath);
+      if (sandboxFile?.ports) {
+        for (const p of sandboxFile.ports) ports.add(p);
+      }
     }
   }
 
@@ -629,10 +683,12 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
       permission = "allow";
       break;
     }
-    const sandboxFile = loadProjectSandboxFile(proj.hostPath);
-    if (sandboxFile?.permission === "allow") {
-      permission = "allow";
-      break;
+    if (proj.hostPath) {
+      const sandboxFile = loadProjectSandboxFile(proj.hostPath);
+      if (sandboxFile?.permission === "allow") {
+        permission = "allow";
+        break;
+      }
     }
   }
 

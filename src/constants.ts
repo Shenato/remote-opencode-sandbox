@@ -51,3 +51,6 @@ export const AGENT_DEFAULT_REVIEWER_INTERVAL = 60;
 export const AGENT_DEFAULT_RUN_TIMEOUT = 300;
 export const AGENT_DEFAULT_SERVE_PORT_BASE = 4096;
 export const AGENT_DEFAULT_DISCORD_CHANNEL_SUFFIX = "dev";
+
+/** Chrome zombie cleanup interval (in seconds) */
+export const CHROME_CLEANUP_INTERVAL = 7200;

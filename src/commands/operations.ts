@@ -281,7 +281,7 @@ export function statusCommand(): void {
     } else {
       for (const proj of projects) {
         console.log(
-          `  ${chalk.cyan(proj.name)} ${chalk.dim(`(${proj.template})`)} ${chalk.dim(proj.hostPath)}`
+          `  ${chalk.cyan(proj.name)} ${chalk.dim(`(${proj.template})`)} ${chalk.dim(proj.hostPath ?? proj.gitUrl ?? "remote")}`
         );
         if (proj.ports.length > 0) {
           console.log(

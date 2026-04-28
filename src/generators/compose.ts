@@ -54,16 +54,29 @@ export function generateCompose(instance: ResolvedInstance): string {
   // ── Volumes ──────────────────────────────────────────────────────
   lines.push(`    volumes:`);
 
-  // Project bind mounts
-  for (const proj of instance.projects) {
-    lines.push(`      # Project: ${proj.name}`);
-    lines.push(`      - ${proj.hostPath}:${proj.workspacePath}`);
-  }
-  lines.push(``);
+  // Project bind mounts (only for host-mounted projects)
+  const hostMountedProjects = instance.projects.filter((p) => !p.isRemote);
+  const remoteProjects = instance.projects.filter((p) => p.isRemote);
 
-  // Named volumes for node_modules per project
+  if (hostMountedProjects.length > 0) {
+    for (const proj of hostMountedProjects) {
+      lines.push(`      # Project: ${proj.name}`);
+      lines.push(`      - ${proj.hostPath}:${proj.workspacePath}`);
+    }
+    lines.push(``);
+  }
+
+  if (remoteProjects.length > 0) {
+    lines.push(`      # Remote-only projects (cloned inside container by entrypoint)`);
+    for (const proj of remoteProjects) {
+      lines.push(`      # ${proj.name}: ${proj.gitUrl} → ${proj.workspacePath}`);
+    }
+    lines.push(``);
+  }
+  // Named volumes for node_modules per host-mounted project
+  // Remote projects manage node_modules in the container filesystem
   const nodeModulesVolumes: string[] = [];
-  for (const proj of instance.projects) {
+  for (const proj of hostMountedProjects) {
     const volName = `${proj.name}-node-modules`;
     nodeModulesVolumes.push(volName);
     lines.push(`      # node_modules for ${proj.name}`);

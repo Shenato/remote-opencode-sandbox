@@ -145,8 +145,14 @@ export function generateDockerfile(instance: ResolvedInstance): string {
   lines.push(``);
 
   // ── remote-opencode ──────────────────────────────────────────────
-  lines.push(`# remote-opencode (Discord bridge)`);
-  lines.push(`RUN npm install -g remote-opencode@latest`);
+  if (instance.localRemoteOpencodeTarball) {
+    lines.push(`# remote-opencode (local fork for testing)`);
+    lines.push(`COPY ${instance.localRemoteOpencodeTarball} /tmp/${instance.localRemoteOpencodeTarball}`);
+    lines.push(`RUN npm install -g /tmp/${instance.localRemoteOpencodeTarball} && rm /tmp/${instance.localRemoteOpencodeTarball}`);
+  } else {
+    lines.push(`# remote-opencode (Discord bridge)`);
+    lines.push(`RUN npm install -g remote-opencode@latest`);
+  }
   lines.push(``);
 
   // ── Bun (installed as coder user) ────────────────────────────────
@@ -163,11 +169,14 @@ export function generateDockerfile(instance: ResolvedInstance): string {
   lines.push(`# Workspace — projects are mounted here`);
   lines.push(`RUN mkdir -p /workspace`);
 
-  // Pre-create node_modules dirs for each project that uses node
+  // Pre-create node_modules dirs for each host-mounted project that uses node
+  // Remote-only projects are cloned at runtime, so their dirs don't exist at build time
   for (const proj of instance.projects) {
-    lines.push(
-      `RUN mkdir -p ${proj.workspacePath}/node_modules`
-    );
+    if (!proj.isRemote) {
+      lines.push(
+        `RUN mkdir -p ${proj.workspacePath}/node_modules`
+      );
+    }
   }
 
   // chown AFTER all dirs are created, so named volumes inherit coder ownership

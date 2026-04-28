@@ -5,6 +5,7 @@ import {
   MAX_RAPID_RESTARTS,
   RAPID_WINDOW,
   BACKOFF_DELAY,
+  CHROME_CLEANUP_INTERVAL,
 } from "../constants.ts";
 
 /**
@@ -90,6 +91,8 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   // ── Preflight checks ────────────────────────────────────────────
   lines.push(`# ── Preflight checks ──`);
   for (const proj of instance.projects) {
+    // Only check node_modules permissions for host-mounted projects
+    if (proj.isRemote) continue;
     lines.push(
       `if [ -d "${proj.workspacePath}/node_modules" ] && ! [ -w "${proj.workspacePath}/node_modules" ]; then`,
     );
@@ -197,6 +200,36 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
       lines.push(`else`);
       lines.push(
         `  log "repos" "${repoName} exists but is not a git repo — skipping"`,
+      );
+      lines.push(`fi`);
+    }
+    lines.push(``);
+  }
+
+  // ── Clone/pull remote-only projects ───────────────────────────────
+  const remoteProjects = instance.projects.filter((p) => p.isRemote);
+  if (remoteProjects.length > 0) {
+    lines.push(
+      `# ── Remote-only projects (clone if missing, pull if present) ──`,
+    );
+    for (const proj of remoteProjects) {
+      const repoUrl = proj.gitUrl ?? "";
+      const targetDir = proj.workspacePath;
+      lines.push(`if [ -d "${targetDir}/.git" ]; then`);
+      lines.push(`  log "projects" "Pulling ${proj.name}..."`);
+      lines.push(
+        `  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[project:${proj.name}] /") || log "projects" "Pull failed for ${proj.name} (continuing)"`,
+      );
+      lines.push(
+        `elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`,
+      );
+      lines.push(`  log "projects" "Cloning ${proj.name}..."`);
+      lines.push(
+        `  (GIT_TERMINAL_PROMPT=0 git clone "${repoUrl}" "${targetDir}" 2>&1 | sed "s/^/[project:${proj.name}] /") || log "projects" "Clone failed for ${proj.name} (continuing)"`,
+      );
+      lines.push(`else`);
+      lines.push(
+        `  log "projects" "${proj.name} exists but is not a git repo — skipping"`,
       );
       lines.push(`fi`);
     }
@@ -417,9 +450,45 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   lines.push(`DAEMON_RESTART["remote-opencode"]="always"`);
   lines.push(``);
 
+  // ── Chrome zombie cleanup ──────────────────────────────────────────
+  const cleanupCycles = Math.round(CHROME_CLEANUP_INTERVAL / WATCHDOG_INTERVAL);
+  lines.push(`# ── Chrome zombie cleanup (every ${CHROME_CLEANUP_INTERVAL}s) ──`);
+  lines.push(`CHROME_CLEANUP_COUNTER=0`);
+  lines.push(`CHROME_CLEANUP_EVERY=${cleanupCycles}`);
+  lines.push(`CHROME_CPU_THRESHOLD=80  # kill chrome renderers using more than this % CPU`);
+  lines.push(``);
+  lines.push(`check_chrome_zombies() {`);
+  lines.push(`  log "chrome-cleanup" "Checking for runaway Chrome processes..."`);
+  lines.push(`  local killed=0`);
+  lines.push(`  # Find Chrome renderer processes using excessive CPU`);
+  lines.push(`  while IFS= read -r line; do`);
+  lines.push(`    local pid cpu`);
+  lines.push(`    pid=$(echo "$line" | awk '{print $1}')`);
+  lines.push(`    cpu=$(echo "$line" | awk '{print $2}' | cut -d. -f1)`);
+  lines.push(`    if [ -n "$pid" ] && [ -n "$cpu" ] && (( cpu > CHROME_CPU_THRESHOLD )); then`);
+  lines.push(`      log "chrome-cleanup" "Killing runaway Chrome process PID=$pid CPU=$cpu%"`);
+  lines.push(`      kill -9 "$pid" 2>/dev/null || true`);
+  lines.push(`      killed=$((killed + 1))`);
+  lines.push(`    fi`);
+  lines.push(`  done < <(ps aux | grep -E 'chrome.*(renderer|gpu-process)' | grep -v grep | awk '{print $2, $3}')`);
+  lines.push(`  if (( killed > 0 )); then`);
+  lines.push(`    log "chrome-cleanup" "Killed $killed runaway Chrome process(es)"`);
+  lines.push(`  else`);
+  lines.push(`    log "chrome-cleanup" "No runaway Chrome processes found"`);
+  lines.push(`  fi`);
+  lines.push(`}`);
+  lines.push(``);
+
   lines.push(`while true; do`);
   lines.push(`  sleep "$WATCHDOG_INTERVAL"`);
   lines.push(`  if $SHUTTING_DOWN; then break; fi`);
+  lines.push(``);
+  lines.push(`  # Chrome zombie cleanup check`);
+  lines.push(`  CHROME_CLEANUP_COUNTER=$((CHROME_CLEANUP_COUNTER + 1))`);
+  lines.push(`  if (( CHROME_CLEANUP_COUNTER >= CHROME_CLEANUP_EVERY )); then`);
+  lines.push(`    CHROME_CLEANUP_COUNTER=0`);
+  lines.push(`    check_chrome_zombies`);
+  lines.push(`  fi`);
   lines.push(``);
   lines.push(`  for name in "\${!DAEMON_PIDS[@]}"; do`);
   lines.push(`    if ! kill -0 "\${DAEMON_PIDS[$name]}" 2>/dev/null; then`);

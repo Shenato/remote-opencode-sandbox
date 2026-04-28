@@ -255,13 +255,18 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
   if (instance.projects.length > 0) {
     lines.push(`## Projects`);
     lines.push(``);
-    lines.push(`The following projects are mounted in this container:`);
+    lines.push(`The following projects are available in this container:`);
     lines.push(``);
 
     for (const proj of instance.projects) {
+      const mountType = proj.isRemote ? "remote (cloned at startup)" : "host-mounted (bind mount)";
       lines.push(`### ${proj.name}`);
       lines.push(``);
       lines.push(`- **Path**: \`${proj.workspacePath}\``);
+      lines.push(`- **Mount**: ${mountType}`);
+      if (proj.isRemote && proj.gitUrl) {
+        lines.push(`- **Source**: \`${proj.gitUrl}\``);
+      }
       if (Object.keys(proj.envOverrides).length > 0) {
         lines.push(`- **Env overrides**:`);
         for (const [k, v] of Object.entries(proj.envOverrides)) {

@@ -46,6 +46,7 @@ const resolved: ResolvedInstance = {
     {
       name: projectName,
       hostPath,
+      isRemote: false,
       workspacePath,
       services: { container: containerServices, host: [] },
       envOverrides: { ...template.envOverrides },
