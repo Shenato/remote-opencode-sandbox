@@ -319,26 +319,51 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
     lines.push(`roles operating on per-project kanban boards.`);
     lines.push(``);
 
-    lines.push(`### Agent Toolkit`);
+    lines.push(`### Agent Toolkits`);
     lines.push(``);
-    lines.push(
-      `The toolkit is a first-class infrastructure component, not a regular repository:`,
-    );
+
+    const toolkitEntries = Object.values(at.toolkits);
+    if (toolkitEntries.length === 1) {
+      const tk = toolkitEntries[0]!;
+      lines.push(
+        `The toolkit is a first-class infrastructure component, not a regular repository:`,
+      );
+      lines.push(``);
+      lines.push(
+        `- **Symlink**: \`${at.toolkitSymlinkPath}\` → \`${tk.path}\``,
+      );
+      lines.push(`- **Source**: \`${tk.repo}\``);
+      lines.push(
+        `- **CLI**: \`bun run ${at.toolkitSymlinkPath}/bin/cli.ts <command>\``,
+      );
+    } else {
+      lines.push(
+        `This workspace uses **multiple toolkits** — different projects may use different agent orchestration systems:`,
+      );
+      lines.push(``);
+      lines.push(`| Toolkit | Path | Source | Default |`);
+      lines.push(`|---------|------|--------|---------|`);
+      for (const tk of toolkitEntries) {
+        const defaultLabel = tk.isDefault ? "Yes" : "No";
+        lines.push(
+          `| ${tk.name} | \`${tk.path}\` | \`${tk.repo}\` | ${defaultLabel} |`,
+        );
+      }
+      lines.push(``);
+      lines.push(
+        `The default toolkit is symlinked at \`${at.toolkitSymlinkPath}\` → \`${at.toolkitPath}\`.`,
+      );
+      lines.push(
+        `Non-default toolkits are referenced by their direct path. Each project's agents-init and daemon commands use the project's own toolkit.`,
+      );
+    }
     lines.push(``);
+    lines.push(`All toolkits handle:`);
     lines.push(
-      `- **Symlink**: \`${at.toolkitSymlinkPath}\` → \`${at.toolkitPath}\``,
-    );
-    lines.push(`- **Source**: \`${at.toolkitRepo}\``);
-    lines.push(
-      `- **CLI**: \`bun run ${at.toolkitSymlinkPath}/bin/cli.ts <command>\``,
-    );
-    lines.push(``);
-    lines.push(`The toolkit handles:`);
-    lines.push(
-      `- Workspace-level setup: \`${at.toolkitSymlinkPath}/bin/cli.ts setup\` → creates \`/workspace/.agents/\` with skills and cross-project config`,
+      `- Workspace-level setup: \`<toolkit>/bin/cli.ts setup\` → creates \`/workspace/.agents/\` with skills and cross-project config`,
     );
     lines.push(
-      `- Per-project init: \`${at.toolkitSymlinkPath}/bin/cli.ts init --port <port>\` → scaffolds \`.agents/\` in each project`,
+      `- Per-project init: \`<toolkit>/bin/cli.ts init --port <port>\` → scaffolds \`.agents/\` in each project`,
     );
     lines.push(
       `- Agent orchestration: \`daemon\`, \`work\`, \`review\`, \`plan\` commands`,
@@ -348,7 +373,7 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
     );
     lines.push(``);
     lines.push(
-      `Always use the symlink path (\`${at.toolkitSymlinkPath}\`) when referencing the toolkit.`,
+      `For the default toolkit, use the symlink path (\`${at.toolkitSymlinkPath}\`).`,
     );
     lines.push(``);
 
@@ -396,10 +421,10 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
     );
     lines.push(``);
     lines.push(
-      `| Project | Type | Serve Port | Cron | Daemon Port | Worktree | Worker Model | Reviewer Model | Intervals |`,
+      `| Project | Type | Toolkit | Serve Port | Cron | Daemon Port | Worktree | Worker Model | Reviewer Model | Intervals |`,
     );
     lines.push(
-      `|---------|------|------------|------|-------------|----------|--------------|----------------|-----------|`,
+      `|---------|------|---------|------------|------|-------------|----------|--------------|----------------|-----------|`,
     );
 
     // Bind-mounted projects
@@ -413,7 +438,7 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
         ? `${pa.workerIntervalMinutes}m / ${pa.reviewerIntervalMinutes}m`
         : "—";
       lines.push(
-        `| ${proj.name} | project | ${pa.servePort} | ${cronStatus} | ${daemonPort} | ${worktree} | \`${pa.workerModel}\` | \`${pa.reviewerModel}\` | ${intervals} |`,
+        `| ${proj.name} | project | ${pa.toolkitName} | ${pa.servePort} | ${cronStatus} | ${daemonPort} | ${worktree} | \`${pa.workerModel}\` | \`${pa.reviewerModel}\` | ${intervals} |`,
       );
     }
 
@@ -428,7 +453,7 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
         ? `${pa.workerIntervalMinutes}m / ${pa.reviewerIntervalMinutes}m`
         : "—";
       lines.push(
-        `| ${repoName} | extraRepo | ${pa.servePort} | ${cronStatus} | ${daemonPort} | ${worktree} | \`${pa.workerModel}\` | \`${pa.reviewerModel}\` | ${intervals} |`,
+        `| ${repoName} | extraRepo | ${pa.toolkitName} | ${pa.servePort} | ${cronStatus} | ${daemonPort} | ${worktree} | \`${pa.workerModel}\` | \`${pa.reviewerModel}\` | ${intervals} |`,
       );
     }
     lines.push(``);
@@ -458,7 +483,7 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
       `5. Agents communicate via \`opencode run --attach http://localhost:<port> --agent <agent-name>\`.`,
     );
     lines.push(
-      `6. When cron is enabled, the \`agents-setup daemon\` periodically dispatches worker and reviewer agents.`,
+      `6. When cron is enabled, the toolkit's \`daemon\` command periodically dispatches worker and reviewer agents.`,
     );
     lines.push(``);
 
@@ -496,7 +521,7 @@ export function generateAgentsMd(instance: ResolvedInstance): string {
         `- A separate \`opencode serve\` runs in the worktree on the daemon port`,
       );
       lines.push(
-        `- The \`agents-setup daemon\` runs from the worktree and connects to the daemon serve`,
+        `- The toolkit's \`daemon\` command runs from the worktree and connects to the daemon serve`,
       );
       lines.push(
         `- The main checkout at \`/workspace/<project>\` is used exclusively by Discord-prompted work`,

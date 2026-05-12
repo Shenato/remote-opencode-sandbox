@@ -139,37 +139,52 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
   // ── Agent toolkit clone/symlink (first-class, before extra repos) ───
   if (instance.agentTeam) {
     const at = instance.agentTeam;
-    const repoName = at.toolkitName;
-    const targetDir = at.toolkitPath;
-    const symlinkPath = at.toolkitSymlinkPath;
 
-    lines.push(
-      `# ── Agent toolkit (${repoName}) — first-class infrastructure ──`,
-    );
-    lines.push(`if [ -d "${targetDir}/.git" ]; then`);
-    lines.push(`  log "toolkit" "Pulling ${repoName}..."`);
-    lines.push(
-      `  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Pull failed for ${repoName} (continuing)"`,
-    );
-    lines.push(
-      `elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`,
-    );
-    lines.push(`  log "toolkit" "Cloning ${repoName}..."`);
-    lines.push(
-      `  (GIT_TERMINAL_PROMPT=0 git clone "${at.toolkitRepo}" "${targetDir}" 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Clone failed for ${repoName} (continuing)"`,
-    );
-    lines.push(`else`);
-    lines.push(
-      `  log "toolkit" "${repoName} exists but is not a git repo — skipping clone"`,
-    );
-    lines.push(`fi`);
-    lines.push(``);
-    lines.push(`# Symlink toolkit to workspace root for discoverability`);
-    lines.push(`if [ -d "${targetDir}" ]; then`);
-    lines.push(`  ln -sfn "${targetDir}" "${symlinkPath}"`);
-    lines.push(`  log "toolkit" "Symlinked ${symlinkPath} -> ${targetDir}"`);
-    lines.push(`fi`);
-    lines.push(``);
+    // Clone/pull each unique toolkit (skip those that are also projects —
+    // they're already cloned/bind-mounted by the normal project flow)
+    for (const tk of Object.values(at.toolkits)) {
+      if (tk.isProject) {
+        lines.push(
+          `# ── Agent toolkit (${tk.name}) — reusing project clone at ${tk.path} ──`,
+        );
+      } else {
+        const repoName = tk.name;
+        const targetDir = tk.path;
+
+        lines.push(
+          `# ── Agent toolkit (${repoName}) — first-class infrastructure ──`,
+        );
+        lines.push(`if [ -d "${targetDir}/.git" ]; then`);
+        lines.push(`  log "toolkit" "Pulling ${repoName}..."`);
+        lines.push(
+          `  (cd "${targetDir}" && GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Pull failed for ${repoName} (continuing)"`,
+        );
+        lines.push(
+          `elif [ ! -d "${targetDir}" ] || [ -z "$(ls -A "${targetDir}" 2>/dev/null)" ]; then`,
+        );
+        lines.push(`  log "toolkit" "Cloning ${repoName}..."`);
+        lines.push(
+          `  (GIT_TERMINAL_PROMPT=0 git clone "${tk.repo}" "${targetDir}" 2>&1 | sed "s/^/[toolkit:${repoName}] /") || log "toolkit" "Clone failed for ${repoName} (continuing)"`,
+        );
+        lines.push(`else`);
+        lines.push(
+          `  log "toolkit" "${repoName} exists but is not a git repo — skipping clone"`,
+        );
+        lines.push(`fi`);
+        lines.push(``);
+      }
+
+      // Only symlink the default toolkit to /workspace/.toolkit
+      if (tk.isDefault) {
+        const symlinkPath = at.toolkitSymlinkPath;
+        lines.push(`# Symlink default toolkit to workspace root for discoverability`);
+        lines.push(`if [ -d "${tk.path}" ]; then`);
+        lines.push(`  ln -sfn "${tk.path}" "${symlinkPath}"`);
+        lines.push(`  log "toolkit" "Symlinked ${symlinkPath} -> ${tk.path}"`);
+        lines.push(`fi`);
+        lines.push(``);
+      }
+    }
   }
 
   // ── Clone/pull extra repositories ─────────────────────────────────
@@ -366,6 +381,19 @@ export function generateEntrypoint(instance: ResolvedInstance): string {
 
   // ── Start daemon services ────────────────────────────────────────
   if (daemons.length > 0) {
+    // Pre-create /tmp/.X11-unix if Xvfb is among the daemons.
+    // Non-root users cannot create this directory, causing Xvfb warnings
+    // and potential Godot rendering failures.
+    const hasXvfb = daemons.some(
+      (svc) => svc.name.includes("xvfb") || /\bXvfb\b/.test(svc.command),
+    );
+    if (hasXvfb) {
+      lines.push(`# Pre-create X11 socket directory for Xvfb (non-root user cannot create it)`);
+      lines.push(`mkdir -p /tmp/.X11-unix`);
+      lines.push(`chmod 1777 /tmp/.X11-unix`);
+      lines.push(``);
+    }
+
     lines.push(`# ── Daemon services ──`);
     const sorted = topologicalSort(daemons);
     for (const svc of sorted) {

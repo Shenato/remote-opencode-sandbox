@@ -18,6 +18,8 @@ import type {
   AgentTeamConfig,
   ResolvedAgentTeamConfig,
   ResolvedProjectAgentConfig,
+  ResolvedToolkitConfig,
+  ToolkitType,
 } from "../types.ts";
 import {
   CONFIG_DIR,
@@ -294,9 +296,66 @@ function resolveAgentTeam(
   const agentTeam = instanceConfig.agentTeam;
   if (!agentTeam?.enabled || !agentTeam.toolkitRepo) return undefined;
 
-  const toolkitName = repoNameFromUrl(agentTeam.toolkitRepo);
-  const toolkitPath = `${CONTAINER_WORKSPACE}/${toolkitName}`;
+  const defaultToolkitName = repoNameFromUrl(agentTeam.toolkitRepo);
+  const defaultToolkitPath = `${CONTAINER_WORKSPACE}/${defaultToolkitName}`;
   const toolkitSymlinkPath = `${CONTAINER_WORKSPACE}/${TOOLKIT_SYMLINK_NAME}`;
+
+  // Build set of all project names for detecting project-toolkits
+  const projectNames = new Set(projects.map((p) => p.name));
+  // Also include extra repo names from repoAgentConfigs
+  if (agentTeam.repoAgentConfigs) {
+    for (const name of Object.keys(agentTeam.repoAgentConfigs)) {
+      projectNames.add(name);
+    }
+  }
+
+  const defaultToolkitType = agentTeam.toolkitType ?? "agents-setup";
+
+  // Track all unique toolkits (keyed by name derived from URL)
+  const toolkits: Record<string, ResolvedToolkitConfig> = {
+    [defaultToolkitName]: {
+      name: defaultToolkitName,
+      repo: agentTeam.toolkitRepo,
+      path: defaultToolkitPath,
+      type: defaultToolkitType,
+      isDefault: true,
+      isProject: projectNames.has(defaultToolkitName),
+    },
+  };
+
+  // Helper to resolve toolkit info for a project
+  function resolveProjectToolkit(projAgent?: { toolkitRepo?: string; toolkitType?: ToolkitType }): {
+    toolkitName: string;
+    toolkitType: ToolkitType;
+    toolkitPath: string;
+    toolkitSymlinkPath: string;
+  } {
+    const projectToolkitRepo = projAgent?.toolkitRepo;
+    if (!projectToolkitRepo || projectToolkitRepo === agentTeam!.toolkitRepo) {
+      return {
+        toolkitName: defaultToolkitName,
+        toolkitType: projAgent?.toolkitType ?? defaultToolkitType,
+        toolkitPath: defaultToolkitPath,
+        toolkitSymlinkPath,
+      };
+    }
+    const name = repoNameFromUrl(projectToolkitRepo);
+    const path = `${CONTAINER_WORKSPACE}/${name}`;
+    const type = projAgent?.toolkitType ?? "agents-setup";
+    // Register toolkit if not already tracked
+    if (!toolkits[name]) {
+      toolkits[name] = {
+        name,
+        repo: projectToolkitRepo,
+        path,
+        type,
+        isDefault: false,
+        isProject: projectNames.has(name),
+      };
+    }
+    // Non-default toolkits reference their own path directly (no symlink indirection)
+    return { toolkitName: name, toolkitType: type, toolkitPath: path, toolkitSymlinkPath: path };
+  }
 
   // Resolve per-project agent configs (bind-mounted projects)
   const resolvedProjects: Record<string, ResolvedProjectAgentConfig> = {};
@@ -305,6 +364,7 @@ function resolveAgentTeam(
     const projAgent = proj.agentConfig;
     const cronEnabled = projAgent?.cronEnabled ?? false;
     const servePort = projAgent?.servePort ?? AGENT_DEFAULT_SERVE_PORT_BASE + i;
+    const tk = resolveProjectToolkit(projAgent);
 
     resolvedProjects[proj.name] = {
       servePort,
@@ -313,6 +373,10 @@ function resolveAgentTeam(
         ? `${CONTAINER_WORKTREES_DIR}/${proj.name}`
         : undefined,
       cronEnabled,
+      toolkitName: tk.toolkitName,
+      toolkitType: tk.toolkitType,
+      toolkitPath: tk.toolkitPath,
+      toolkitSymlinkPath: tk.toolkitSymlinkPath,
       workerModel:
         projAgent?.workerModel ??
         agentTeam.workerModel ??
@@ -347,6 +411,7 @@ function resolveAgentTeam(
       const servePort =
         repoAgent.servePort ??
         AGENT_DEFAULT_SERVE_PORT_BASE + existingCount + i;
+      const tk = resolveProjectToolkit(repoAgent);
 
       resolvedProjects[repoName] = {
         servePort,
@@ -355,6 +420,10 @@ function resolveAgentTeam(
           ? `${CONTAINER_WORKTREES_DIR}/${repoName}`
           : undefined,
         cronEnabled,
+        toolkitName: tk.toolkitName,
+        toolkitType: tk.toolkitType,
+        toolkitPath: tk.toolkitPath,
+        toolkitSymlinkPath: tk.toolkitSymlinkPath,
         workerModel:
           repoAgent.workerModel ??
           agentTeam.workerModel ??
@@ -382,10 +451,11 @@ function resolveAgentTeam(
 
   return {
     enabled: true,
-    toolkitName,
+    toolkitName: defaultToolkitName,
     toolkitRepo: agentTeam.toolkitRepo,
-    toolkitPath,
+    toolkitPath: defaultToolkitPath,
     toolkitSymlinkPath,
+    toolkits,
     discord: {
       enabled: agentTeam.discord?.enabled ?? true,
       channelSuffix:
@@ -505,8 +575,13 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
   }
   if (instanceConfig.mcp) Object.assign(mcp, instanceConfig.mcp);
 
-  // Merge env overrides
+  // Merge env overrides from all layers (template → instance → project → .sandbox.json)
   const envOverrides: Record<string, string> = {};
+  for (const proj of projects) {
+    const template = loadBuiltinTemplate(proj.template);
+    if (template?.envOverrides)
+      Object.assign(envOverrides, template.envOverrides);
+  }
   if (instanceConfig.envOverrides)
     Object.assign(envOverrides, instanceConfig.envOverrides);
   for (const proj of projects) {
@@ -642,14 +717,46 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
       name: proj.name,
       hostPath: proj.hostPath,
       gitUrl: proj.gitUrl,
-      isRemote: !proj.hostPath,
+      isRemote,
       workspacePath,
       services: { container: containerServices, host: hostServices },
-      envOverrides: {
-        ...proj.envOverrides,
-        ...(sandboxFile?.env?.override ?? {}),
-      },
+      envOverrides: proj.envOverrides ?? {},
     });
+  }
+
+  // ── Deduplicate shared singleton services (e.g. Xvfb) ──────────
+  // When multiple projects define the same daemon (same command), collapse
+  // them into a single instance-level service. This prevents conflicts like
+  // two Xvfb processes fighting over the same display number.
+  const singletonCandidates = ["xvfb"];
+  for (const baseName of singletonCandidates) {
+    const matching = allContainerServices.filter(
+      (svc) => svc.name.endsWith(`:${baseName}`) && svc.type === "daemon",
+    );
+    if (matching.length > 1) {
+      // Remove all per-project instances
+      for (const svc of matching) {
+        const idx = allContainerServices.indexOf(svc);
+        if (idx >= 0) allContainerServices.splice(idx, 1);
+      }
+      // Add a single instance-level service using the first one's config
+      const first = matching[0]!;
+      allContainerServices.push({
+        ...first,
+        name: `instance:${baseName}`,
+        workdir: CONTAINER_WORKSPACE,
+      });
+      // Rewrite any dependsOn references from project-scoped to instance-scoped
+      for (const svc of allContainerServices) {
+        if (svc.dependsOn) {
+          svc.dependsOn = svc.dependsOn.map((d) =>
+            matching.some((m) => m.name === d)
+              ? `instance:${baseName}`
+              : d,
+          );
+        }
+      }
+    }
   }
 
   // Instance-level container services (not tied to any project)
@@ -720,129 +827,199 @@ export function resolveInstance(instanceName: string): ResolvedInstance | null {
     // The toolkit repo is NOT added to extraRepos — it gets its own dedicated
     // clone/symlink block in the entrypoint generator (first-class entity).
 
-    // Oneshot: bun install in toolkit directory
-    const toolkitInstallSvc: ContainerService = {
-      name: "instance:toolkit-install",
-      command: "bun install",
-      workdir: agentTeam.toolkitPath,
-      type: "oneshot",
-      restart: "never",
-    };
-    allContainerServices.push(toolkitInstallSvc);
+    // Per-toolkit install and setup services (one per unique toolkit)
+    for (const tk of Object.values(agentTeam.toolkits)) {
+      // Determine the install dependency for this toolkit
+      let installDepName: string;
 
-    // Projects with local file dependencies on the toolkit (e.g.
-    // "my-toolkit": "/workspace/agents-setup" in package.json)
-    // need their install oneshots to run AFTER the toolkit is cloned and
-    // installed.  Without this, topological sort may schedule project installs
-    // before the toolkit directory even exists → ENOENT crash loop.
-    // Adding the dependency universally is harmless for projects without the
-    // local dep — it only adds a brief ordering constraint.
-    for (const svc of allContainerServices) {
-      if (svc.type === "oneshot" && svc.name.endsWith(":install")) {
-        svc.dependsOn = svc.dependsOn ?? [];
-        if (!svc.dependsOn.includes("instance:toolkit-install")) {
-          svc.dependsOn.push("instance:toolkit-install");
+      if (tk.isProject) {
+        // Toolkit is also a project — reuse the project's existing :install
+        // oneshot instead of creating a duplicate install service.
+        installDepName = `${tk.name}:install`;
+      } else {
+        // Standalone toolkit — create a dedicated install service
+        installDepName = `instance:${tk.name}-install`;
+
+        const toolkitInstallSvc: ContainerService = {
+          name: installDepName,
+          command: "bun install",
+          workdir: tk.path,
+          type: "oneshot",
+          restart: "never",
+        };
+        allContainerServices.push(toolkitInstallSvc);
+
+        // Projects with local file dependencies on the toolkit need their
+        // install oneshots to run AFTER the toolkit is cloned and installed.
+        for (const svc of allContainerServices) {
+          if (svc.type === "oneshot" && svc.name.endsWith(":install")) {
+            svc.dependsOn = svc.dependsOn ?? [];
+            if (!svc.dependsOn.includes(installDepName)) {
+              svc.dependsOn.push(installDepName);
+            }
+          }
         }
       }
-    }
 
-    // Oneshot: workspace-level setup (creates /workspace/.agents/, installs skills)
-    // This runs the toolkit's `setup` command which:
-    //   - Creates workspace-level .agents/ directory with cross-project config
-    //   - Discovers all projects and their skills
-    //   - Creates cross-project skill symlinks in /workspace/.agents/skills/
-    //   - Writes workspace.json manifest for project/skill discovery
-    const toolkitSetupSvc: ContainerService = {
-      name: "instance:toolkit-setup",
-      command: `bun run ${agentTeam.toolkitSymlinkPath}/bin/cli.ts setup`,
-      workdir: CONTAINER_WORKSPACE,
-      type: "oneshot",
-      restart: "never",
-      dependsOn: ["instance:toolkit-install"],
-    };
-    allContainerServices.push(toolkitSetupSvc);
+      // agents-setup toolkits get a workspace-level setup oneshot
+      // opencode-orchestrator toolkits don't need setup — they manage their own config
+      if (tk.type === "agents-setup") {
+        const setupSvcName = `instance:${tk.name}-setup`;
+        const toolkitSetupSvc: ContainerService = {
+          name: setupSvcName,
+          command: `bun run ${tk.path}/bin/cli.ts setup`,
+          workdir: CONTAINER_WORKSPACE,
+          type: "oneshot",
+          restart: "never",
+          dependsOn: [installDepName],
+        };
+        allContainerServices.push(toolkitSetupSvc);
+      }
+    }
 
     // Per-project agent services (both bind-mounted projects and extra repos)
     for (const [projectName, projAgent] of Object.entries(agentTeam.projects)) {
       const workspacePath = `${CONTAINER_WORKSPACE}/${projectName}`;
+      const tkInstallDep = agentTeam.toolkits[projAgent.toolkitName]?.isProject
+        ? `${projAgent.toolkitName}:install`
+        : `instance:${projAgent.toolkitName}-install`;
 
-      // Oneshot: agents-setup init (scaffolds per-project .agents/ directory)
-      const initSvc: ContainerService = {
-        name: `${projectName}:agents-init`,
-        command: `bun run ${agentTeam.toolkitSymlinkPath}/bin/cli.ts init --port ${projAgent.servePort}`,
-        workdir: workspacePath,
-        type: "oneshot",
-        restart: "never",
-        dependsOn: ["instance:toolkit-setup"],
-      };
-      allContainerServices.push(initSvc);
+      if (projAgent.toolkitType === "opencode-orchestrator") {
+        // ── opencode-orchestrator flow ──
+        // 1. Register the project in the orchestrator's config
+        // 2. Start opencode serve for this project
+        // 3. Run the orchestrator's server.ts as daemon (only when cronEnabled)
 
-      // Daemon: opencode serve for this project
-      const serveSvc: ContainerService = {
-        name: `${projectName}:opencode-serve`,
-        command: `opencode serve --port ${projAgent.servePort}`,
-        workdir: workspacePath,
-        type: "daemon",
-        restart: "always",
-        port: projAgent.servePort,
-        dependsOn: [`${projectName}:agents-init`],
-      };
-      allContainerServices.push(serveSvc);
+        // Oneshot: register project in orchestrator config
+        const registerSvc: ContainerService = {
+          name: `${projectName}:orchestrator-register`,
+          command: [
+            `bun run ${projAgent.toolkitPath}/src/cli.ts project add`,
+            `${projectName} ${workspacePath}`,
+            `--name "${projectName}"`,
+            `--port ${projAgent.servePort}`,
+            `--type game`,
+          ].join(" "),
+          workdir: projAgent.toolkitPath,
+          type: "oneshot",
+          restart: "never",
+          dependsOn: [tkInstallDep],
+        };
+        allContainerServices.push(registerSvc);
 
-      // Daemon: agents-setup cron daemon (only when cronEnabled)
-      // Uses git worktree isolation so daemon agents don't conflict with
-      // interactive Discord-prompted work on the same project.
-      if (projAgent.cronEnabled) {
-        const worktreePath = `${CONTAINER_WORKTREES_DIR}/${projectName}`;
-        const daemonPort = projAgent.servePort + DAEMON_PORT_OFFSET;
+        // Daemon: opencode serve for this project
+        const serveSvc: ContainerService = {
+          name: `${projectName}:opencode-serve`,
+          command: `opencode serve --port ${projAgent.servePort}`,
+          workdir: workspacePath,
+          type: "daemon",
+          restart: "always",
+          port: projAgent.servePort,
+          dependsOn: [`${projectName}:orchestrator-register`],
+        };
+        allContainerServices.push(serveSvc);
 
-        // Oneshot: create git worktree (detached HEAD, fresh each container start)
-        const worktreeCreateSvc: ContainerService = {
-          name: `${projectName}:worktree-create`,
-          command: `rm -rf ${worktreePath} && git worktree prune && git worktree add --detach ${worktreePath}`,
+        // Daemon: orchestrator server (only when cronEnabled)
+        // The server.ts has its own cron schedule — no worktree isolation needed
+        // because the orchestrator dispatches via opencode run --attach which
+        // runs in the opencode serve context, not directly in the filesystem.
+        if (projAgent.cronEnabled) {
+          const daemonSvc: ContainerService = {
+            name: `${projectName}:orchestrator-server`,
+            command: `bun run ${projAgent.toolkitPath}/src/server.ts`,
+            workdir: projAgent.toolkitPath,
+            type: "daemon",
+            restart: "always",
+            env: {
+              ACTIVE_PROJECT: projectName,
+              PROJECT_ROOT: workspacePath,
+              CONFIG_FILE: `${projAgent.toolkitPath}/data/${projectName}-config.json`,
+            },
+            dependsOn: [`${projectName}:opencode-serve`],
+          };
+          allContainerServices.push(daemonSvc);
+        }
+      } else {
+        // ── agents-setup flow (default) ──
+        const tkSetupSvc = `instance:${projAgent.toolkitName}-setup`;
+
+        // Oneshot: toolkit init (scaffolds per-project .agents/ directory)
+        const initSvc: ContainerService = {
+          name: `${projectName}:agents-init`,
+          command: `bun run ${projAgent.toolkitSymlinkPath}/bin/cli.ts init --port ${projAgent.servePort}`,
           workdir: workspacePath,
           type: "oneshot",
           restart: "never",
-          // No explicit deps — preamble clones repos before any oneshots run
+          dependsOn: [tkSetupSvc],
         };
-        allContainerServices.push(worktreeCreateSvc);
+        allContainerServices.push(initSvc);
 
-        // Oneshot: init agent config in worktree (with daemon port)
-        const worktreeInitSvc: ContainerService = {
-          name: `${projectName}:worktree-init`,
-          command: `bun run ${agentTeam.toolkitSymlinkPath}/bin/cli.ts init --port ${daemonPort} --cronEnabled`,
-          workdir: worktreePath,
-          type: "oneshot",
-          restart: "never",
-          dependsOn: [
-            `${projectName}:worktree-create`,
-            "instance:toolkit-setup",
-          ],
-        };
-        allContainerServices.push(worktreeInitSvc);
-
-        // Daemon: opencode serve in worktree (daemon port, separate from main serve)
-        const daemonServeSvc: ContainerService = {
-          name: `${projectName}:daemon-serve`,
-          command: `opencode serve --port ${daemonPort}`,
-          workdir: worktreePath,
+        // Daemon: opencode serve for this project
+        const serveSvc: ContainerService = {
+          name: `${projectName}:opencode-serve`,
+          command: `opencode serve --port ${projAgent.servePort}`,
+          workdir: workspacePath,
           type: "daemon",
           restart: "always",
-          port: daemonPort,
-          dependsOn: [`${projectName}:worktree-init`],
+          port: projAgent.servePort,
+          dependsOn: [`${projectName}:agents-init`],
         };
-        allContainerServices.push(daemonServeSvc);
+        allContainerServices.push(serveSvc);
 
-        // Daemon: agents-setup cron daemon (runs from worktree, connects to daemon-serve)
-        const daemonSvc: ContainerService = {
-          name: `${projectName}:agents-daemon`,
-          command: `bun run ${agentTeam.toolkitSymlinkPath}/bin/cli.ts daemon --project ${projectName} --port ${daemonPort}`,
-          workdir: worktreePath,
-          type: "daemon",
-          restart: "always",
-          dependsOn: [`${projectName}:daemon-serve`],
-        };
-        allContainerServices.push(daemonSvc);
+        // Daemon: toolkit cron daemon (only when cronEnabled)
+        // Uses git worktree isolation so daemon agents don't conflict with
+        // interactive Discord-prompted work on the same project.
+        if (projAgent.cronEnabled) {
+          const worktreePath = `${CONTAINER_WORKTREES_DIR}/${projectName}`;
+          const daemonPort = projAgent.servePort + DAEMON_PORT_OFFSET;
+
+          // Oneshot: create git worktree (detached HEAD, fresh each container start)
+          const worktreeCreateSvc: ContainerService = {
+            name: `${projectName}:worktree-create`,
+            command: `rm -rf ${worktreePath} && git worktree prune && git worktree add --detach ${worktreePath}`,
+            workdir: workspacePath,
+            type: "oneshot",
+            restart: "never",
+          };
+          allContainerServices.push(worktreeCreateSvc);
+
+          // Oneshot: init agent config in worktree (with daemon port)
+          const worktreeInitSvc: ContainerService = {
+            name: `${projectName}:worktree-init`,
+            command: `bun run ${projAgent.toolkitSymlinkPath}/bin/cli.ts init --port ${daemonPort} --cronEnabled`,
+            workdir: worktreePath,
+            type: "oneshot",
+            restart: "never",
+            dependsOn: [
+              `${projectName}:worktree-create`,
+              tkSetupSvc,
+            ],
+          };
+          allContainerServices.push(worktreeInitSvc);
+
+          // Daemon: opencode serve in worktree (daemon port, separate from main serve)
+          const daemonServeSvc: ContainerService = {
+            name: `${projectName}:daemon-serve`,
+            command: `opencode serve --port ${daemonPort}`,
+            workdir: worktreePath,
+            type: "daemon",
+            restart: "always",
+            port: daemonPort,
+            dependsOn: [`${projectName}:worktree-init`],
+          };
+          allContainerServices.push(daemonServeSvc);
+
+          // Daemon: toolkit cron daemon (runs from worktree, connects to daemon-serve)
+          const daemonSvc: ContainerService = {
+            name: `${projectName}:agents-daemon`,
+            command: `bun run ${projAgent.toolkitSymlinkPath}/bin/cli.ts daemon --project ${projectName} --port ${daemonPort}`,
+            workdir: worktreePath,
+            type: "daemon",
+            restart: "always",
+            dependsOn: [`${projectName}:daemon-serve`],
+          };
+          allContainerServices.push(daemonSvc);
+        }
       }
     }
   }

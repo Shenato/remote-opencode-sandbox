@@ -124,7 +124,7 @@ function generateAgentDefinitions(agentTeam: ResolvedAgentTeamConfig): {
       description: "Add a new task to a project's kanban board",
       template: [
         `Add a new task to the kanban board. The user will provide the task details.`,
-        `Use the agents-setup CLI: cd <project> && bun run ${toolkitPath}/bin/cli.ts add "<title>" --description "<desc>" --priority <priority>`,
+        `Use the ${agentTeam.toolkitName} CLI: cd <project> && bun run ${toolkitPath}/bin/cli.ts add "<title>" --description "<desc>" --priority <priority>`,
         `If no project is specified, ask which project this task belongs to.`,
         `Available projects:`,
         projectList,
@@ -134,7 +134,7 @@ function generateAgentDefinitions(agentTeam: ResolvedAgentTeamConfig): {
       description: "Trigger the worker agent on a project",
       template: [
         `Trigger the worker agent to pick up and complete the next task.`,
-        `Use the agents-setup CLI: bun run ${toolkitPath}/bin/cli.ts work --project <project> --port <port>`,
+        `Use the ${agentTeam.toolkitName} CLI: bun run ${toolkitPath}/bin/cli.ts work --project <project> --port <port>`,
         `If no project is specified, show the kanban boards and ask which project to work on.`,
         `Available projects:`,
         projectList,
@@ -144,7 +144,7 @@ function generateAgentDefinitions(agentTeam: ResolvedAgentTeamConfig): {
       description: "Trigger the reviewer agent on a project",
       template: [
         `Trigger the reviewer agent to review completed work.`,
-        `Use the agents-setup CLI: bun run ${toolkitPath}/bin/cli.ts review --project <project> --port <port>`,
+        `Use the ${agentTeam.toolkitName} CLI: bun run ${toolkitPath}/bin/cli.ts review --project <project> --port <port>`,
         `If no project is specified, show items pending review and ask which project.`,
         `Available projects:`,
         projectList,
@@ -154,7 +154,7 @@ function generateAgentDefinitions(agentTeam: ResolvedAgentTeamConfig): {
       description: "Show kanban board status for projects",
       template: [
         `Show the current kanban board status for one or all projects.`,
-        `Use the agents-setup CLI: bun run ${toolkitPath}/bin/cli.ts status --project <project>`,
+        `Use the ${agentTeam.toolkitName} CLI: bun run ${toolkitPath}/bin/cli.ts status --project <project>`,
         `If no project is specified, show all project boards.`,
         `Available projects:`,
         projectList,
@@ -164,7 +164,7 @@ function generateAgentDefinitions(agentTeam: ResolvedAgentTeamConfig): {
       description: "Send a Discord notification for a project",
       template: [
         `Send a Discord notification message for a project.`,
-        `Use the agents-setup CLI: bun run ${toolkitPath}/bin/cli.ts notify --project <project> --message "<message>"`,
+        `Use the ${agentTeam.toolkitName} CLI: bun run ${toolkitPath}/bin/cli.ts notify --project <project> --message "<message>"`,
         `Available projects:`,
         projectList,
       ].join("\n"),
@@ -173,7 +173,7 @@ function generateAgentDefinitions(agentTeam: ResolvedAgentTeamConfig): {
       description: "Upload a file to a project's Discord channel",
       template: [
         `Upload a file to the project's Discord channel.`,
-        `Use the agents-setup CLI: bun run ${toolkitPath}/bin/cli.ts discord-upload --project <project> --file <path>`,
+        `Use the ${agentTeam.toolkitName} CLI: bun run ${toolkitPath}/bin/cli.ts discord-upload --project <project> --file <path>`,
         `Available projects:`,
         projectList,
       ].join("\n"),

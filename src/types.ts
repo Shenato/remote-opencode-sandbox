@@ -225,6 +225,8 @@ export interface AgentTeamConfig {
    * Must expose a CLI at `bin/cli.ts` with commands: setup, init, work, review, plan, daemon.
    */
   toolkitRepo?: string;
+  /** Toolkit type for the default toolkit (default: "agents-setup") */
+  toolkitType?: ToolkitType;
   /** Default model for the worker agent (can be overridden per-project) */
   workerModel?: string;
   /** Default model for the reviewer agent (can be overridden per-project) */
@@ -269,6 +271,19 @@ export interface AgentDiscordConfig {
 }
 
 /**
+ * Toolkit type determines which CLI interface the agent team system
+ * uses to interact with the toolkit.
+ *
+ * - `"agents-setup"` — Standard interface: `bin/cli.ts` with setup, init, daemon commands.
+ *   The sandbox generates setup/init oneshots and a daemon service.
+ *
+ * - `"opencode-orchestrator"` — Self-contained server: `src/server.ts` with built-in cron
+ *   pipeline and `src/cli.ts` for project management. The sandbox generates a project
+ *   registration oneshot and runs server.ts as the daemon. No setup/init needed.
+ */
+export type ToolkitType = "agents-setup" | "opencode-orchestrator";
+
+/**
  * Per-project agent overrides stored in ProjectConfig.
  *
  * These let individual projects customize their agent behaviour
@@ -280,6 +295,20 @@ export interface ProjectAgentConfig {
   servePort: number;
   /** Whether the cron daemon runs for this project (default: false) */
   cronEnabled?: boolean;
+  /**
+   * Override the toolkit repo for this project.
+   *
+   * When set, this project uses a different toolkit than the instance-level
+   * `agentTeam.toolkitRepo`. The toolkit is cloned and installed independently.
+   */
+  toolkitRepo?: string;
+  /**
+   * Override the toolkit type for this project.
+   *
+   * Determines the CLI interface used. Defaults to "agents-setup".
+   * Set to "opencode-orchestrator" for projects using the opencode-orchestrator toolkit.
+   */
+  toolkitType?: ToolkitType;
   /** Override the worker model for this project */
   workerModel?: string;
   /** Override the reviewer model for this project */
@@ -296,6 +325,14 @@ export interface ResolvedProjectAgentConfig {
   /** Path to the git worktree for daemon agents. Only set when cronEnabled. */
   worktreePath?: string;
   cronEnabled: boolean;
+  /** Name of this project's toolkit (e.g. "agents-setup" or "opencode-orchestrator") */
+  toolkitName: string;
+  /** The CLI interface type of this project's toolkit */
+  toolkitType: ToolkitType;
+  /** Actual clone path of this project's toolkit inside the container */
+  toolkitPath: string;
+  /** Symlink path for this project's toolkit (same as toolkitPath when project uses a non-default toolkit) */
+  toolkitSymlinkPath: string;
   workerModel: string;
   reviewerModel: string;
   plannerModel: string;
@@ -307,17 +344,41 @@ export interface ResolvedProjectAgentConfig {
   runTimeoutSeconds: number;
 }
 
+/** Resolved info for a single toolkit repo */
+export interface ResolvedToolkitConfig {
+  /** Name derived from the repo URL (e.g. "agents-setup") */
+  name: string;
+  /** Full git URL */
+  repo: string;
+  /** Clone path inside container: /workspace/<name> */
+  path: string;
+  /** CLI interface type */
+  type: ToolkitType;
+  /** Whether this is the default (instance-level) toolkit */
+  isDefault: boolean;
+  /**
+   * Whether this toolkit is also a project in the instance.
+   *
+   * When true, the toolkit is NOT separately cloned or installed —
+   * it reuses the project's clone at /workspace/<name> and its
+   * existing :install oneshot service.
+   */
+  isProject: boolean;
+}
+
 /** Fully resolved instance-level agent team config */
 export interface ResolvedAgentTeamConfig {
   enabled: boolean;
-  /** Name derived from the toolkit repo URL (e.g. "agents-setup") */
+  /** Name derived from the default toolkit repo URL (e.g. "agents-setup") */
   toolkitName: string;
-  /** Full git URL of the toolkit repo */
+  /** Full git URL of the default toolkit repo */
   toolkitRepo: string;
   /** Actual clone path inside the container: /workspace/<toolkitName> */
   toolkitPath: string;
   /** Symlink path at workspace root: /workspace/.toolkit */
   toolkitSymlinkPath: string;
+  /** All unique toolkits used across projects, keyed by toolkit name */
+  toolkits: Record<string, ResolvedToolkitConfig>;
   /** Discord notification settings */
   discord: { enabled: boolean; channelSuffix: string };
   /** Per-project resolved configs, keyed by project name (includes both projects and extra repos) */
